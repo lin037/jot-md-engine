@@ -4,7 +4,7 @@
 <h1 align="center">Jot Markdown Engine</h1>
 <p align="center">可嵌入网页的 Markdown 编辑器，由 CodeMirror 6 和 Rust/Wasm 驱动。</p>
 <p align="center">
-  <a href="https://blog.lin037.cn/jot-md-engine/"><strong>在线 Demo</strong></a> ·
+  <a href="https://lin037.github.io/jot-md-engine/"><strong>在线 Demo</strong></a> ·
   <a href="packages/editor/README.md">组件接入</a> ·
   <a href="docs/README.md">项目文档</a>
 </p>
@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-426c5a" alt="MIT"></a>
 </p>
 <p align="center">
-  <a href="https://blog.lin037.cn/jot-md-engine/"><img src="docs/assets/demo-split.webp" width="960" alt="Jot 的双栏模式，左侧是 Markdown 源码，右侧是排版后的列表、引用、表格和代码块"></a>
+  <a href="https://lin037.github.io/jot-md-engine/"><img src="docs/assets/demo-split.webp" width="960" alt="Jot 的双栏模式，左侧是 Markdown 源码，右侧是排版后的列表、引用、表格和代码块"></a>
 </p>
 
 Jot 支持源码、即时预览和双栏编辑。在即时预览里可以直接改正文、勾选任务或编辑表格单元格，保存的内容仍是 Markdown。命令面板提供格式、搜索、折叠和表格操作，常用操作支持键盘和自定义快捷键。[Markdown 方言](docs/guides/markdown.md)
