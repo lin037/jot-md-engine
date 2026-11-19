@@ -1,17 +1,22 @@
-# Jot Markdown Engine
+<p align="center">
+  <img src="docs/assets/jot.svg" alt="" width="72" height="72">
+</p>
+<h1 align="center">Jot Markdown Engine</h1>
+<p align="center">可嵌入网页的 Markdown 编辑器，由 CodeMirror 6 和 Rust/Wasm 驱动。</p>
+<p align="center">
+  <a href="https://blog.lin037.cn/jot-md-engine/"><strong>在线 Demo</strong></a> ·
+  <a href="packages/editor/README.md">组件接入</a> ·
+  <a href="docs/README.md">项目文档</a>
+</p>
+<p align="center">
+  <a href="https://github.com/lin037/jot-md-engine/actions/workflows/ci.yml"><img src="https://github.com/lin037/jot-md-engine/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-426c5a" alt="MIT"></a>
+</p>
+<p align="center">
+  <a href="https://blog.lin037.cn/jot-md-engine/"><img src="docs/assets/demo-split.webp" width="960" alt="Jot 的双栏模式，左侧是 Markdown 源码，右侧是排版后的列表、引用、表格和代码块"></a>
+</p>
 
-<img src="docs/assets/jot.svg" alt="Jot" width="64" height="64">
-
-[![CodeMirror 6](https://img.shields.io/badge/CodeMirror-6-1F5F9B?style=flat&logo=codemirror&logoColor=white)](https://codemirror.net/)
-[![Rust 1.100.0](https://img.shields.io/badge/Rust-1.100.0-B5411A?style=flat&logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![WebAssembly，wasm-bindgen 0.2.126](https://img.shields.io/badge/WebAssembly-wasm--bindgen%200.2.126-654FF0?style=flat&logo=webassembly&logoColor=white)](https://wasm-bindgen.github.io/wasm-bindgen/)
-[![TypeScript 7.0.2](https://img.shields.io/badge/TypeScript-7.0.2-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-
-Jot 是一个可以嵌入网页的 Markdown 编辑器。它支持源码、即时预览和双栏编辑。在即时预览里可以直接改正文、勾选任务或编辑表格单元格，保存的内容仍是 Markdown。
-
-CodeMirror 负责输入、选区和撤销。Rust 引擎在浏览器的 Web Worker 里运行，通过 WebAssembly 确认文本修改、解析语法，并把当前视口需要的内容交给前端。Jot 有自己的 Markdown 方言，代码围栏、列表续行和引用等规则见[语法说明](docs/guides/markdown.md)。
-
-命令面板集中提供格式、搜索、折叠和表格操作。常用操作可以只用键盘完成，也可以按宿主需要改键。
+Jot 支持源码、即时预览和双栏编辑。在即时预览里可以直接改正文、勾选任务或编辑表格单元格，保存的内容仍是 Markdown。命令面板提供格式、搜索、折叠和表格操作，常用操作支持键盘和自定义快捷键。[Markdown 方言](docs/guides/markdown.md)
 
 ## 本地演示
 
@@ -41,38 +46,22 @@ pnpm run build:editor
 
 ## 编辑器架构
 
-主线程里的 TypeScript 把 CodeMirror 的编辑提交给 Web Worker。Worker 用 TypeScript 调度 Rust/Wasm 引擎，返回正文修订和语法数据。编辑区可以先显示输入，预览随可用的语法数据更新。
+CodeMirror 在主线程处理输入。TypeScript 适配层把编辑发给 Web Worker，Rust/Wasm 在 Worker 内确认文本并增量解析。主线程校验回包的修订号，再更新当前视口。
 
 ```mermaid
----
-config:
-  flowchart:
-    rankSpacing: 32
-    nodeSpacing: 24
-    padding: 8
----
-flowchart TB
-    subgraph Page["浏览器主线程"]
-        Input["CodeMirror 编辑区<br/>A · 看到变化"]
-        Session["TypeScript<br/>编辑事务与视口数据"]
-        Heights["Pretext 布局估算<br/>缓存字宽、算换行与块高"]
-        Layout["虚拟布局<br/>可见范围、占位与滚动校正"]
-        Mounted["视口和缓冲区的内容"]
+flowchart LR
+    Input("CodeMirror<br/>输入与选区") -->|编辑| Session("TypeScript 适配层<br/>提交事务与校验版本")
+    Session -->|事务与窗口请求| Engine("Web Worker · Rust/Wasm<br/>正文确认与增量解析")
+    Engine -->|回包经适配层校验| View("浏览器视图<br/>按视口挂载内容")
+    Estimate("Pretext<br/>估算块高") -.-> View
 
-        Input -->|编辑| Session
-        Session -->|可见范围的语法块| Layout
-        Heights -->|估算高度| Layout
-        Layout -->|按需挂载| Mounted
-        Mounted -.->|实测高度| Layout
-    end
-
-    subgraph Background["Web Worker"]
-        Engine["Rust/Wasm<br/>正文修订、增量解析与视口投影"]
-    end
-
-    Session -->|提交修改、请求视口内容| Engine
-    Engine -->|B · 正文可以保存<br/>C · 全文解析完成| Session
+    classDef browser fill:#edf5ef,stroke:#749684,color:#213c30
+    classDef background fill:#eaf0f8,stroke:#758eac,color:#243b56
+    class Input,Session,View,Estimate browser
+    class Engine background
 ```
+
+基准测量记录三个时点。**A** 是页面看到变化，**B** 是 Worker 确认正文、应用可以保存，**C** 是该修订的全文解析完成。
 
 ### 编辑同步
 
@@ -109,7 +98,7 @@ sequenceDiagram
 
 ## 浏览器基准
 
-「看到变化」「正文可以保存」「全文解析完成」分别从操作起点计到图中的 A、B、C。画面更新和正文提交可以重叠，A 有时会晚于 B。「可保存后到解析完」只算 B 到 C，两项结果一起返回时记为 0。文件写入由接入编辑器的应用完成。[保存方法](docs/guides/editor.md#保存和关闭) · [编辑流程细节](docs/architecture/editing-pipeline.md)
+「看到变化」「正文可以保存」「全文解析完成」分别从操作起点计到 A、B、C。画面更新和正文提交可以重叠，A 有时会晚于 B。「可保存后到解析完」只算 B 到 C，两项结果一起返回时记为 0。文件写入由接入编辑器的应用完成。[保存方法](docs/guides/editor.md#保存和关闭) · [编辑流程细节](docs/architecture/editing-pipeline.md)
 
 在 Apple M3、macOS（Darwin 25.1.0）、Chrome 157.0.8103.79 无头模式下，使用生产构建和 1100 × 850 视口。样本为 1,048,985 字节混合 Markdown，约 1 MiB。每行 5 次测量，另有 1 次预热。单位为毫秒，单元格写中位数 / 最大值。
 
