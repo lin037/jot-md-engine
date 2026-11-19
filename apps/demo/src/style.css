@@ -14,7 +14,8 @@
   --match: #f5e8b1;
   --match-current: #e7c46d;
   --danger: #a53126;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --system-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--system-font);
   color: var(--ink);
   background: var(--surround);
 }
@@ -56,7 +57,7 @@ body { margin: 0; }
 .header-inner { min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--rule); }
 .identity, .header-actions, .sample-actions, .inline-actions { display: flex; align-items: center; gap: 8px; }
 .identity img { display: block; flex: none; }
-.identity h1 { font-family: Georgia, serif; font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -.035em; }
+.identity h1 { font-size: 22px; font-weight: 650; line-height: 1.2; margin: 0; letter-spacing: -.025em; }
 .header-actions button {
   border: 1px solid transparent; background: transparent; color: var(--muted);
   padding: 6px 10px; font: inherit; font-size: 13px; border-radius: 6px; cursor: pointer;
@@ -64,7 +65,7 @@ body { margin: 0; }
 .header-actions button:hover, .header-actions button[aria-expanded="true"] { background: var(--control-hover); color: var(--accent); }
 .header-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-height: 58px; padding-block: 8px; font-size: 13px; }
-.toolbar label { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); white-space: nowrap; }
+.toolbar label { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-weight: 500; white-space: nowrap; }
 .command-trigger { margin-inline-start: auto; }
 .command-trigger kbd {
   color: var(--muted); font-size: 10px; padding: 2px 5px; margin-inline-start: 4px;
@@ -82,7 +83,7 @@ body { margin: 0; }
 button:disabled, select:disabled { opacity: .55; cursor: default; }
 .workspace { flex: 1; min-height: 0; min-width: 0; display: flex; position: relative; gap: var(--column-gap); }
 .paper-area { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
-.statusbar { display: flex; gap: 12px; align-items: center; min-height: 34px; flex: none; font-size: 12px; color: var(--muted); }
+.statusbar { display: flex; gap: 12px; align-items: center; min-height: 34px; flex: none; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); }
 #status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #status[data-error], [data-error].panel-note { color: var(--danger); }
 
@@ -107,7 +108,7 @@ body > .jot-direct-scrollbar .jot-direct-scrollbar__thumb {
   display: flex; flex: none; align-items: center; justify-content: space-between; gap: 9px;
   border-bottom: 1px solid var(--rule); padding: 13px 16px;
 }
-.panel-header h2 { margin: 0; font-size: 16px; }
+.panel-header h2 { margin: 0; font-size: 16px; font-weight: 650; line-height: 1.25; }
 .panel-body { overflow: auto; overscroll-behavior: contain; padding: 15px 16px; font-size: 13px; }
 .panel-body h3 { font-size: 13px; margin: 16px 0 8px; }
 .panel-note { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 7px 0; }
@@ -174,10 +175,10 @@ body > .jot-direct-scrollbar .jot-direct-scrollbar__thumb {
 /* 短文档的内容盒随图表伸缩，CodeMirror 才能在重新测量时更新下方标题的折叠位置。 */
 #editor-root .jot-live-preview-content { min-height: 0; }
 #editor-root :is(.jot-live-preview-content, .jot-editor-content) {
-  --jot-heading-1-font-size: 1.3125em;
-  --jot-heading-2-font-size: 1.1875em;
-  --jot-heading-3-font-size: 1.125em;
-  --jot-heading-4-font-size: 1.0625em;
+  --jot-heading-1-font-size: calc(28em / 17);
+  --jot-heading-2-font-size: calc(22em / 17);
+  --jot-heading-3-font-size: calc(20em / 17);
+  --jot-heading-4-font-size: calc(18em / 17);
   --jot-heading-5-font-size: 1em;
   --jot-heading-6-font-size: 1em;
 }
@@ -211,7 +212,7 @@ body > .jot-direct-scrollbar .jot-direct-scrollbar__thumb {
 /* The grid retains its measured borders and spacing; only the visual rules change. */
 #editor-root .jot-table { margin-inline: 0; border-color: transparent; }
 #editor-root .jot-table-toolbar { background: transparent; border-block-end-color: var(--rule); }
-#editor-root .jot-table-toolbar__button { padding: 4px 7px; border-color: transparent; font: 500 12px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+#editor-root .jot-table-toolbar__button { padding: 4px 7px; border-color: transparent; font: 500 12px/1.2 var(--system-font); }
 #editor-root .jot-table-toolbar__button:disabled { opacity: .65; }
 #editor-root .jot-table-toolbar__button:hover:not(:disabled) { background: var(--control-hover); }
 #editor-root .jot-table-grid-header { box-shadow: 0 1px 0 var(--rule-strong); }

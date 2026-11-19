@@ -29,7 +29,7 @@ const insert = document.querySelector<HTMLButtonElement>("#insert")!;
 const status = document.querySelector<HTMLElement>("#status")!;
 const shortcutsButton = document.querySelector<HTMLButtonElement>("#open-shortcuts")!;
 const fonts = {
-  sans: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+  sans: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
   serif: 'Georgia, "Songti SC", STSong, "Noto Serif CJK SC", SimSun, serif',
   mono: 'ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace',
 } as const;
@@ -58,8 +58,8 @@ const editor = new MarkdownEditor({
           clusterBkg: color("--surround"),
           clusterBorder: color("--rule-strong"),
           edgeLabelBackground: color("--paper"),
-          fontFamily: fonts.serif,
-          fontSize: "16px",
+          fontFamily: fonts.sans,
+          fontSize: "17px",
         };
       },
     }),
@@ -89,8 +89,8 @@ const editor = new MarkdownEditor({
       selection: "var(--selection)",
     },
     layout: {
-      fontFamily: fonts.serif,
-      fontSize: 16,
+      fontFamily: fonts.sans,
+      fontSize: 17,
       metrics: {
         tableToolbarHeight: 32,
       },

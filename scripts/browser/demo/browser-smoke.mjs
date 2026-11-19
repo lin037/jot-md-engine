@@ -63,6 +63,7 @@ try {
         return {
           width: innerWidth, mode: root.dataset.jotEditorMode,
           fontSize: parseFloat(getComputedStyle(pane.querySelector(${JSON.stringify(mode === "preview" || mode === "split" || mode === "pretext" ? ".jot-editor-content" : ".cm-content")})).fontSize),
+          fontFamily: getComputedStyle(pane.querySelector(${JSON.stringify(mode === "preview" || mode === "split" || mode === "pretext" ? ".jot-editor-content" : ".cm-content")})).fontFamily,
           paragraphLineHeight: parseFloat(getComputedStyle(pane.querySelector(${JSON.stringify(mode === "preview" || mode === "split" || mode === "pretext" ? ".jot-editor-content" : ".cm-content")})).getPropertyValue('--jot-paragraph-line-height')),
           listMarkerGaps: [...pane.querySelectorAll('.jot-live-preview-list-item')].map(n=> {
             const row=getComputedStyle(n),marker=getComputedStyle(n,'::before');
@@ -100,7 +101,8 @@ try {
       })()`);
       const boxes = await readBoxes();
       assert(!boxes.error, JSON.stringify(boxes));
-      assert.equal(boxes.fontSize, 16, 'Demo typography reaches the actual visible host');
+      assert.equal(boxes.fontSize, 17, 'Demo typography reaches the actual visible host');
+      assert.match(boxes.fontFamily, /system-ui/, 'Demo uses the system font in the visible host');
       if (mode !== 'source') assert(Math.abs(boxes.paragraphLineHeight - boxes.fontSize * 22 / 14) < 0.1,
         `Demo uses the font-relative default paragraph metric at ${width}/${mode}`);
       assert(boxes.pageOverflow <= 1, `page overflows at ${width}/${mode}`);

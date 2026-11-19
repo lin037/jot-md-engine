@@ -2,7 +2,7 @@ import { mixedLargeSample } from "./mixed-sample.js";
 
 export const ARTICLE = `# 排版手记
 
-正文选了 **16 px** 的衬线字，*旁注*沿用相同的字号。样式表用 \`em\` 记录比例，一级标题取正文的 $21/16$ 倍。
+正文采用 **17 px** 的系统字体，*旁注*同字号。标题按 \`em\` 缩放，一级标题是正文的 $28/17$ 倍。
 
 ## 校样清单
 
@@ -14,18 +14,18 @@ export const ARTICLE = `# 排版手记
 
 | 名称 | 说明 |
 | --- | --- |
-| 正文 | 16 px |
-| 一级标题 | 21 px |
+| 正文 | 17 px |
+| 一级标题 | 28 px |
 
 \`\`\` css begin
-article { font-size: 16px; }
-h1 { font-size: 1.3125em; }
+article { font-size: 17px; }
+h1 { font-size: calc(28em / 17); }
 \`\`\` end
 
 按正文的字号换算，一级标题的大小是
 
 $$
-16 \\times 1.3125 = 21
+17 \\times \\frac{28}{17} = 28
 $$
 
 ![布局示意图](./pretext-layout.svg)
