@@ -46,19 +46,26 @@ pnpm run build:editor
 
 ## 编辑器架构
 
-CodeMirror 在主线程处理输入。TypeScript 适配层把编辑发给 Web Worker，Rust/Wasm 在 Worker 内确认文本并增量解析。主线程校验回包的修订号，再更新当前视口。
+主线程里的 TypeScript 把 CodeMirror 的编辑提交给 Web Worker。Worker 用 TypeScript 调度 Rust/Wasm 引擎，返回正文修订和语法数据。编辑区可以先显示输入，预览随可用的语法数据更新。
 
 ```mermaid
 flowchart LR
-    Input("CodeMirror<br/>输入与选区") -->|编辑| Session("TypeScript 适配层<br/>提交事务与校验版本")
-    Session -->|事务与窗口请求| Engine("Web Worker · Rust/Wasm<br/>正文确认与增量解析")
-    Engine -->|回包经适配层校验| View("浏览器视图<br/>按视口挂载内容")
-    Estimate("Pretext<br/>估算块高") -.-> View
+    subgraph Main["浏览器主线程"]
+        Input["CodeMirror<br/>输入、选区与撤销"]
+        Session["TypeScript 适配层<br/>编辑事务与投影缓存"]
+        View["即时预览 / 独立预览<br/>按视口挂载"]
+        Layout["Pretext / 虚拟布局<br/>块高估算与滚动校正"]
 
-    classDef browser fill:#edf5ef,stroke:#749684,color:#213c30
-    classDef background fill:#eaf0f8,stroke:#758eac,color:#243b56
-    class Input,Session,View,Estimate browser
-    class Engine background
+        Input -->|编辑| Session
+        Session <-->|视口请求与投影补丁| View
+        Layout <-->|估算与实测块高| View
+    end
+
+    subgraph Worker["Web Worker"]
+        Engine["Rust/Wasm<br/>正文确认、增量解析与投影"]
+    end
+
+    Session <-->|事务、修订与投影| Engine
 ```
 
 基准测量记录三个时点。**A** 是页面看到变化，**B** 是 Worker 确认正文、应用可以保存，**C** 是该修订的全文解析完成。
