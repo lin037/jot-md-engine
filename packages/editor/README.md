@@ -4,10 +4,10 @@ Jot 是一个浏览器 Markdown 编辑器。CodeMirror 处理键盘输入、选�
 
 ## 接入
 
-下面用 Vite 和 TypeScript 举例。在自己的应用目录中安装两个本地 tarball，路径按实际位置替换。
+在应用目录中安装编辑器。下面用 Vite 和 TypeScript 举例。
 
 ```sh
-npm install ./jot-md-editor-protocol-0.1.0.tgz ./jot-md-editor-0.1.0.tgz
+npm install https://github.com/lin037/jot-md-engine/releases/download/v0.1.0/jot-md-editor-0.1.0.tgz
 ```
 
 在 `index.html` 为编辑器留出高度，并加载主线程入口。
@@ -31,8 +31,9 @@ void bootstrapEditorWorker({
 在 `src/main.ts` 中创建编辑器实例。
 
 ```ts
-import { MarkdownEditor } from "@jot-md/editor";
-import type { DocumentId } from "@jot-md/editor-protocol";
+import { MarkdownEditor, type MarkdownEditorOptions } from "@jot-md/editor";
+
+type DocumentId = MarkdownEditorOptions["session"]["documentId"];
 
 const worker = new Worker(new URL("./editor.worker.ts", import.meta.url), {
   type: "module",

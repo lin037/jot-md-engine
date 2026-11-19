@@ -19,6 +19,8 @@ pnpm run package:verify
 
 `dist/packages/` 生成 `@jot-md/editor-protocol` 和 `@jot-md/editor` 的两个 `.tgz` 及 `manifest.json`。组件包含 JS、类型声明、样式和 Worker 所需的 Wasm。打包检查会拒绝 Demo 和基准目录，并在独立项目验证安装、公开入口、样式与 Worker 通信。只需生成归档时可运行 `pnpm run package:pack`。
 
+GitHub Releases 使用 `pnpm run package:verify --standalone` 生成的单个归档，协议已随编辑器打入 `dist/release/`。也可以从 **Actions → CI → Run workflow** 下载 `jot-editor-package` 构建产物。
+
 ## 首次发布
 
 1. 确认 npm 账号有权在 `@jot-md` scope 内发布。在两个包的 `package.json` 中填入真实的 `repository.url`，例如 `git+https://github.com/<owner>/<repo>.git`，并合并到默认分支。

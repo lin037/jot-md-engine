@@ -20,8 +20,8 @@ const evidence = [];
 try {
   server = spawn(resolve("node_modules/.bin/vite"), ["preview", "--config", "apps/demo/vite.config.mjs", "--base", base, "--port", "4180", "--strictPort"], { stdio: "ignore" });
   await waitForHttp(url, 15000);
-  chrome = spawn(process.env.CHROME_BIN ?? findChrome(), ["--headless=new", "--no-first-run", "--disable-background-networking", "--remote-debugging-port=9333", `--user-data-dir=${profile}`, url], { stdio: "ignore" });
-  await waitForHttp("http://127.0.0.1:9333/json/version", 15000);
+  chrome = spawn(process.env.CHROME_BIN ?? findChrome(), ["--headless=new", "--no-first-run", "--disable-background-networking", "--remote-debugging-port=9333", `--user-data-dir=${profile}`, url], { stdio: ["ignore", "ignore", process.env.CI ? "inherit" : "ignore"] });
+  await waitForHttp("http://127.0.0.1:9333/json/version", 30_000);
   const pages = await fetch("http://127.0.0.1:9333/json/list").then(r => r.json());
   client = await connectCdp(pages.find(p => p.type === "page" && p.url.includes(":4180")).webSocketDebuggerUrl);
   await client.command("Runtime.enable");

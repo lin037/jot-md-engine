@@ -1,5 +1,6 @@
 import {
   copyFileSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -11,12 +12,16 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const packageDirectory = resolve(root, "dist/packages");
-run("node", ["scripts/release/pack-editor.mjs"], root);
+const standalone = process.argv.includes("--standalone");
+const packageDirectory = resolve(root, standalone ? "dist/release" : "dist/packages");
+run("node", ["scripts/release/pack-editor.mjs", ...(standalone ? ["--standalone"] : [])], root);
 const manifest = JSON.parse(readFileSync(resolve(packageDirectory, "manifest.json"), "utf8"));
 const protocol = manifest.packages.find((item) => item.name === "@jot-md/editor-protocol");
 const editor = manifest.packages.find((item) => item.name === "@jot-md/editor");
-if (protocol === undefined || editor === undefined) throw new Error("packed package manifest incomplete");
+if (editor === undefined || (standalone ? manifest.packages.length !== 1 : protocol === undefined)) {
+  throw new Error("packed package manifest incomplete");
+}
+const packages = standalone ? [editor] : [protocol, editor];
 
 const consumer = mkdtempSync(resolve(tmpdir(), "jot-editor-consumer-"));
 try {
@@ -32,10 +37,12 @@ try {
     "--no-fund",
     "--cache",
     resolve(root, ".tmp/npm-cache"),
-    resolve(packageDirectory, protocol.filename),
-    resolve(packageDirectory, editor.filename),
+    ...packages.map(pkg => resolve(packageDirectory, pkg.filename)),
   ], consumer);
-  const entries = [editor.name, protocol.name].flatMap((name) => {
+  if (standalone && existsSync(resolve(consumer, "node_modules/@jot-md/editor-protocol"))) {
+    throw new Error("Standalone installation unexpectedly needs an external protocol package");
+  }
+  const entries = packages.flatMap(({ name }) => {
     const directory = resolve(consumer, "node_modules", name);
     const installed = JSON.parse(readFileSync(resolve(directory, "package.json"), "utf8"));
     if (installed.license !== "MIT" || readFileSync(resolve(directory, "LICENSE"), "utf8") !== readFileSync(resolve(root, "LICENSE"), "utf8")) {
@@ -58,13 +65,12 @@ import { CodeMirrorSource } from "@jot-md/editor/source";
 import { EditorEventObserver } from "@jot-md/editor/observability";
 import { EditorSurface } from "@jot-md/editor/preview";
 import { bootstrapEditorWorker } from "@jot-md/editor/worker";
-import type { DocumentId } from "@jot-md/editor-protocol";
 
 const editorConstructor: typeof MarkdownEditor = MarkdownEditor;
 const workerBootstrap: typeof bootstrapEditorWorker = bootstrapEditorWorker;
 const connectWorker = (endpoint: DedicatedWorkerGlobalScope) =>
   bootstrapEditorWorker({ endpoint, loadWasm: () => import("@jot-md/editor/wasm") });
-const documentId = "consumer" as DocumentId;
+const documentId = "consumer" as MarkdownEditorOptions["session"]["documentId"];
 const options = null as unknown as MarkdownEditorOptions;
 const layout: EditorLayoutStyle = { fontSize: 18, metrics: { paragraphLineHeight: 30, listMinContentWidth: 120 } };
 const theme: EditorTheme = { colors: { text: "#222", selection: null }, layout };

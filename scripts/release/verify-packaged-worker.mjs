@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { isMainThread, MessageChannel, Worker, workerData } from "node:worker_threads";
-import { PROTOCOL_VERSION } from "@jot-md/editor-protocol";
 import { EditorDocumentSession, range } from "@jot-md/editor/adapter";
 import { bootstrapEditorWorker } from "@jot-md/editor/worker";
 import init, { WasmEditorHost } from "@jot-md/editor/wasm";
 
-// 此文件由 package:verify 复制到安装了两个压缩包的临时项目中执行。
+// 此文件由 package:verify 复制到已安装编辑器的临时项目中执行。
 if (isMainThread) {
   const { port1, port2 } = new MessageChannel();
   const worker = new Worker(new URL(import.meta.url), { workerData: port2, transferList: [port2] });
@@ -20,7 +19,6 @@ if (isMainThread) {
   port1.start();
   const timeout = setTimeout(() => session.dispose(), 15_000);
   try {
-    assert.equal(PROTOCOL_VERSION, 1);
     assert.ok((await session.handshake()).capabilities.includes("protocol-v1"));
     const viewport = { visibleRanges: [range(0, 4)] };
     await session.open(viewport);
