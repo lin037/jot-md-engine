@@ -34,7 +34,7 @@ import {
   type EditorTransactionCoordinator,
 } from "../../adapter/index.js";
 import { createDefaultEditorCommandRegistry } from "../../components/commands.js";
-import { EditorCommandRegistry } from "../../core/commands/index.js";
+import { EditorCommandRegistry, type TableInsertionSize } from "../../core/commands/index.js";
 import { engineSynchronization, requestedOrigin, sourceReadOnlyFilter,
   synchronizedFromEngine } from "./synchronization.js";
 import {
@@ -91,6 +91,8 @@ export interface CodeMirrorInputTransaction {
 export interface EditorCommandExecutionOptions {
   /** 命令没有显式返回目标选区时保留原选区；显式结果选区始终优先。 */
   readonly preserveSelection?: boolean;
+  readonly tableSize?: TableInsertionSize;
+  readonly preserveViewport?: boolean;
 }
 
 interface DesiredInputState {
@@ -342,6 +344,7 @@ export class CodeMirrorSource {
       get source() { return sourceSnapshot(view); },
       get block() { return adapter.confirmedBlockAt(sourceSnapshot(view), Number(selection.head)); },
       selection,
+      ...(options.tableSize === undefined ? {} : { tableSize: options.tableSize }),
       // 工具栏传入显式 anchor 表示用户已经选择了唯一命令目标；普通快捷键
       // 则必须保留 CodeMirror 的多选数量，交给命令前置条件判断。
       selectionCount: selectionOverride === undefined
@@ -355,8 +358,11 @@ export class CodeMirrorSource {
     }
     const edits = result.edits ?? [];
     if (this.view.state.readOnly && edits.length > 0) return false;
+    if (edits.length === 0 && result.selection === undefined && selectionOverride === undefined) return true;
+    if (selectionOverride === undefined && edits.length === 0 && result.userEvent !== "select.format.link" &&
+        result.selection?.anchor === selection.anchor && result.selection.head === selection.head) return true;
     assertCommandEdits(edits, this.view.state.doc.length);
-    this.view.dispatch({
+    const transaction = view.state.update({
       ...(edits.length === 0
         ? {}
         : {
@@ -375,13 +381,15 @@ export class CodeMirrorSource {
               Number(result.selection?.head ?? selection.head),
             ),
           }),
-      scrollIntoView: true,
+      scrollIntoView: options.preserveViewport !== true,
       annotations: [
         requestedOrigin.of(result.origin ?? "keyboard"),
         requestedUserEvent.of(result.userEvent),
         Transaction.userEvent.of(result.userEvent),
       ],
     });
+    if (edits.length > 0 && !transaction.docChanged) return false;
+    view.dispatch(transaction);
     return true;
   }
 

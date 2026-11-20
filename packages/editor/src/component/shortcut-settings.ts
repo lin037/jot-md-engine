@@ -37,7 +37,7 @@ export function mountShortcutSettings(
     inputs.clear();
     fields.replaceChildren();
     const active = new Map(commands.shortcuts.map(binding => [binding.id, binding.key]));
-    for (const binding of commands.defaultShortcuts) {
+    for (const binding of commands.shortcutSettings) {
       const label = document.createElement("label");
       label.className = "jot-shortcut-settings__row";
       const title = document.createElement("span");

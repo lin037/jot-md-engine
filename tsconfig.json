@@ -10,6 +10,7 @@
       "@jot-md/editor/component": ["./packages/editor/src/component/index.ts"],
       "@jot-md/editor/commands": ["./packages/editor/src/core/commands/index.ts"],
       "@jot-md/editor/table": ["./packages/editor/src/components/table/public.ts"],
+      "@jot-md/editor/toolbar": ["./packages/editor/src/plugins/toolbar.ts"],
       "@jot-md/editor/source": ["./packages/editor/src/hosts/source/index.ts"],
       "@jot-md/editor/observability": ["./packages/editor/src/observability/index.ts"],
       "@jot-md/editor/preview": ["./packages/editor/src/hosts/preview/index.ts"],

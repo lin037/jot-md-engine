@@ -240,6 +240,9 @@ body > .jot-direct-scrollbar .jot-direct-scrollbar__thumb {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
   }
+  #editor-root[data-jot-editor-mode="split"].jot-markdown-editor--with-toolbar {
+    grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+  }
   #editor-root[data-jot-editor-mode="split"] .jot-markdown-editor__surface {
     border-block-start: 1px solid var(--rule-strong);
   }

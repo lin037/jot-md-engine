@@ -69,6 +69,10 @@
       "types": "./dist/plugins/heading-fold.d.ts",
       "import": "./dist/plugins/heading-fold.js"
     },
+    "./toolbar": {
+      "types": "./dist/plugins/toolbar.d.ts",
+      "import": "./dist/plugins/toolbar.js"
+    },
     "./source": {
       "types": "./dist/hosts/source/index.d.ts",
       "import": "./dist/hosts/source/index.js"

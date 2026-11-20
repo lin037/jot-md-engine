@@ -1,5 +1,6 @@
 export {
   MarkdownEditor,
+  type MarkdownEditorCommandOptions,
   type MarkdownEditorMode,
   type MarkdownEditorOptions,
 } from "./markdown-editor.js";
@@ -20,4 +21,5 @@ export {
   type EditorCommandContext,
   type EditorCommandResult,
   type EditorShortcut,
+  type TableInsertionSize,
 } from "../core/commands/index.js";

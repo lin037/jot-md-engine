@@ -14,6 +14,150 @@ export const MARKDOWN_EDITOR_CSS = `
 .jot-markdown-editor[data-jot-editor-mode="split"] {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
+.jot-markdown-editor--with-toolbar {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.jot-editor-toolbar {
+  position: relative;
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jot-toolbar-gap, 4px 8px);
+  padding: var(--jot-toolbar-padding, 4px 10px);
+  color: var(--jot-toolbar-text, inherit);
+  background: var(--jot-toolbar-background, color-mix(in srgb, var(--jot-background, Canvas) 97%, currentColor));
+  border-block-end: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+.jot-editor-toolbar__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.jot-editor-toolbar__group:not([hidden]) ~ .jot-editor-toolbar__group {
+  border-inline-start: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  padding-inline-start: 8px;
+}
+.jot-editor-toolbar[hidden], .jot-editor-toolbar__group[hidden] { display: none; }
+.jot-editor-toolbar__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-inline-size: var(--jot-toolbar-button-size, 34px);
+  min-block-size: var(--jot-toolbar-button-size, 34px);
+  border: 0;
+  border-radius: var(--jot-toolbar-button-radius, 6px);
+  padding: 0 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.jot-editor-toolbar__button[hidden] { display: none; }
+.jot-editor-toolbar__button svg { width: var(--jot-toolbar-icon-size, 19px); height: var(--jot-toolbar-icon-size, 19px); }
+.jot-editor-toolbar__button .jot-editor-toolbar__chevron { width: 12px; height: 12px; }
+.jot-editor-toolbar__button:disabled { opacity: .4; cursor: default; }
+.jot-editor-toolbar__button:hover:not(:disabled),
+.jot-editor-toolbar__button[aria-expanded="true"] {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.jot-editor-toolbar :focus-visible { outline: 2px solid var(--jot-toolbar-accent, var(--jot-link-color, currentColor)); outline-offset: -2px; }
+.jot-editor-toolbar__status {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: calc(100% + 4px);
+  inset-inline-end: 6px;
+  max-inline-size: calc(100% - 12px);
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 5px;
+  background: var(--jot-background, Canvas);
+  font: 12px/1.4 system-ui, sans-serif;
+  pointer-events: none;
+}
+.jot-editor-toolbar__picker {
+  --jot-toolbar-picker-accent: var(--jot-toolbar-accent, var(--jot-link-color, currentColor));
+  --jot-toolbar-picker-rule: color-mix(in srgb, currentColor 16%, transparent);
+  box-sizing: border-box;
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: max-content;
+  max-width: calc(100vw - 12px);
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--jot-toolbar-picker-rule);
+  border-radius: 10px;
+  background: var(--jot-toolbar-picker-background, var(--jot-background, Canvas));
+  color: var(--jot-text-color, CanvasText);
+  color-scheme: inherit;
+  box-shadow: 0 8px 24px #0003;
+  font: 13px/1.4 system-ui, sans-serif;
+}
+.jot-editor-toolbar__picker button {
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.jot-editor-toolbar__picker button:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.jot-editor-toolbar__picker--heading button,
+.jot-editor-toolbar__picker--more button {
+  display: block;
+  inline-size: 100%;
+  min-inline-size: 144px;
+  padding: 4px 12px;
+  text-align: start;
+  font-size: var(--jot-toolbar-heading-size, 13px);
+  font-weight: 600;
+}
+.jot-editor-toolbar__picker--heading [aria-current="true"] {
+  color: var(--jot-toolbar-picker-accent);
+  background: color-mix(in srgb, var(--jot-toolbar-picker-accent) 12%, transparent);
+}
+.jot-editor-toolbar__picker--table { width: 264px; padding: 12px; }
+.jot-editor-toolbar__table-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px;
+}
+.jot-editor-toolbar__table-grid button {
+  aspect-ratio: 1;
+  border: 1px solid var(--jot-toolbar-picker-rule);
+  border-radius: 3px;
+}
+.jot-editor-toolbar__table-grid button[data-selected] {
+  background: color-mix(in srgb, var(--jot-toolbar-picker-accent) 18%, transparent);
+  border-color: var(--jot-toolbar-picker-accent);
+}
+.jot-editor-toolbar__table-size { text-align: center; padding-block: 6px; font-variant-numeric: tabular-nums; }
+.jot-editor-toolbar__table-form { display: grid; gap: 10px; border-block-start: 1px solid var(--jot-toolbar-picker-rule); padding-block-start: 8px; }
+.jot-editor-toolbar__dimensions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.jot-editor-toolbar__dimensions label { display: grid; gap: 3px; }
+.jot-editor-toolbar__dimensions input {
+  box-sizing: border-box;
+  inline-size: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--jot-toolbar-picker-rule);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.jot-editor-toolbar__table-form button {
+  justify-self: end;
+  padding: 6px 10px;
+  color: var(--jot-toolbar-picker-accent);
+  background: color-mix(in srgb, var(--jot-toolbar-picker-accent) 12%, transparent);
+  font-weight: 600;
+}
 .jot-markdown-editor__input,
 .jot-markdown-editor__surface {
   box-sizing: border-box;

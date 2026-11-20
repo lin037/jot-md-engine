@@ -12,7 +12,7 @@ import {
   type CodeMirrorSourceOptions,
 } from "../hosts/source/codemirror-source.js";
 import { createDefaultEditorCommandRegistry } from "../components/commands.js";
-import { EditorCommandRegistry } from "../core/commands/index.js";
+import { EditorCommandRegistry, type TableInsertionSize } from "../core/commands/index.js";
 import { replaceTableCell as createTableCellEdit } from "../components/table/source.js";
 import type { TableCommandExecutor } from "../components/table/commands.js";
 import {
@@ -75,6 +75,11 @@ export interface MarkdownEditorOptions {
   readonly onError?: (error: unknown) => void;
 }
 
+export interface MarkdownEditorCommandOptions {
+  /** Keep the current viewport when invoking an edit from external UI. */
+  readonly preserveViewport?: boolean;
+}
+
 /**
  * Framework-neutral, ready-to-mount editor component. Lower-level session,
  * input and rendering objects remain public for hosts that need custom UI.
@@ -96,6 +101,7 @@ export class MarkdownEditor {
   readonly #unsubscribeEvents: () => void;
   readonly #commandUI: ReturnType<typeof mountEditorCommandUI>;
   readonly #plugins: EditorPluginRegistry;
+  readonly #commandActions = new Map<string, () => boolean>();
   #mode: MarkdownEditorMode;
   #surfaceMode: EditorSurfaceMode;
   #opened = false;
@@ -153,6 +159,7 @@ export class MarkdownEditor {
       installMarkdownEditorStyles(options.root.ownerDocument);
     }
     options.root.classList.add("jot-markdown-editor");
+    options.root.toggleAttribute("data-jot-editor-read-only", this.#readOnly);
     applyEditorThemeColors(options.root, options.theme?.colors);
     if (initialMetrics?.paragraphLineHeight !== undefined) {
       options.root.style.setProperty("--jot-paragraph-line-height", `${initialMetrics.paragraphLineHeight}px`);
@@ -306,6 +313,10 @@ export class MarkdownEditor {
     return this.#surfaceMode;
   }
 
+  get canEdit(): boolean {
+    return this.#opened && !this.#disposed && !this.inputPane.hidden && !this.input.view.state.readOnly;
+  }
+
   /** 当前乐观的 CodeMirror 值。 */
   get value(): string {
     return this.input.value;
@@ -332,6 +343,7 @@ export class MarkdownEditor {
       this.#opened = true;
       this.input.setReadOnly(this.#readOnly);
       this.livePreview.open();
+      this.#root.setAttribute("data-jot-editor-ready", "");
     })();
     this.#opening = opening;
     try {
@@ -386,6 +398,7 @@ export class MarkdownEditor {
     this.#assertLive();
     this.#readOnly = readOnly;
     this.input.setReadOnly(!this.#opened || readOnly);
+    this.#root.toggleAttribute("data-jot-editor-read-only", readOnly);
   }
 
   isPluginEnabled(id: string): boolean {
@@ -434,15 +447,32 @@ export class MarkdownEditor {
   }
 
   /** 执行统一注册的命令；当前选区不满足命令前置条件时返回 false。 */
-  executeCommand(id: string, anchor?: number): boolean {
+  executeCommand(id: string, anchor?: number, options: MarkdownEditorCommandOptions = {}): boolean {
     this.#assertOpened();
     return this.input.executeCommand(
       id,
       anchor === undefined ? undefined : selection(anchor),
+      options,
     );
   }
 
   openCommandPalette(): void { this.#assertOpened(); this.#commandUI.open(); }
+
+  /** Insert a Markdown table at the current selection using the registered command. */
+  insertTable(size: TableInsertionSize, options: MarkdownEditorCommandOptions = {}): boolean {
+    this.#assertOpened();
+    return this.input.executeCommand("insert.table", undefined, { ...options, tableSize: size });
+  }
+
+  /** Route a registered command's host action to the UI that owns it. */
+  registerCommandAction(action: string, handler: () => boolean): () => void {
+    this.#assertLive();
+    if (this.#commandActions.has(action)) throw new Error(`duplicate editor command action: ${action}`);
+    this.#commandActions.set(action, handler);
+    return () => {
+      if (this.#commandActions.get(action) === handler) this.#commandActions.delete(action);
+    };
+  }
 
   async openSearch(options: { readonly replace?: boolean } = {}): Promise<boolean> {
     this.#assertOpened();
@@ -528,6 +558,7 @@ export class MarkdownEditor {
     if (this.#disposed) return;
     this.#disposed = true;
     this.#plugins.dispose(this.#onError);
+    this.#commandActions.clear();
     this.#root.ownerDocument.fonts?.removeEventListener("loadingdone", this.#onFontsLoaded);
     this.#root.removeEventListener("jot-image-metadata", this.#onFontsLoaded);
     this.#root.removeEventListener("jot-math-rendered", this.#onFontsLoaded);
@@ -544,6 +575,8 @@ export class MarkdownEditor {
     this.#root.replaceChildren();
     this.#root.classList.remove("jot-markdown-editor");
     delete this.#root.dataset["jotEditorMode"];
+    delete this.#root.dataset["jotEditorReady"];
+    delete this.#root.dataset["jotEditorReadOnly"];
     delete this.#root.dataset["jotSurfaceMode"];
   }
 
@@ -559,6 +592,8 @@ export class MarkdownEditor {
   }
 
   #commandAction(action: string): boolean {
+    const handler = this.#commandActions.get(action);
+    if (handler !== undefined) return handler();
     if (action === "heading-fold.toggle") {
       const active = this.#root.ownerDocument.activeElement;
       const id = active?.closest<HTMLElement>("[data-jot-fold-id]")?.dataset["jotFoldId"];

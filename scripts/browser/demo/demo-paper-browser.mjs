@@ -82,6 +82,7 @@ try {
  await choose('#shortcut-platform',1);
  assert.equal(await shortcutLabel('format.heading-2'),'Ctrl-Alt-2');
  await c.evaluate(`document.querySelector('#shortcuts input[name="command.palette"]').value='Mod-Shift-Y';
+   document.querySelector('#shortcuts input[name="toolbar.open-table"]').value='F8';
    document.querySelector('#shortcuts form').requestSubmit();true`);
  assert.equal(await shortcutLabel('command.palette'),'Ctrl-Shift-y');
  await click('#shortcut-dialog .panel-header button');
@@ -103,6 +104,13 @@ try {
  await click('#open-shortcuts');
  assert.equal(await c.evaluate(`document.querySelector('#shortcut-platform').value`),'windows');
  assert.equal(await shortcutLabel('command.palette'),'Ctrl-Shift-y');
+ assert.equal(await shortcutLabel('toolbar.open-table'),'F8','unassigned toolbar command survives reload');
+ await click('#shortcut-dialog .panel-header button');
+ await c.evaluate("document.querySelector('.cm-content').focus()");
+ for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:'F8',code:'F8',windowsVirtualKeyCode:119});
+ assert(await c.evaluate(`!!document.querySelector('.jot-editor-toolbar__picker--table:popover-open')`),'saved toolbar shortcut opens the table picker after reload');
+ for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+ await click('#open-shortcuts');
  await click('#shortcuts button[type="button"]');
  await screenshot('workbench-shortcuts');
  await click('#shortcut-dialog .panel-header button');

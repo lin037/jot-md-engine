@@ -6,4 +6,5 @@ export type {
   EditorCommandContext,
   EditorCommandResult,
   EditorShortcut,
+  TableInsertionSize,
 } from "./types.js";

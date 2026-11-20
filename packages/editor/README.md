@@ -109,6 +109,63 @@ await editor.setLayoutStyle({ codeBlockWrap: "wrap" });
 - **公式**。从 `@jot-md/editor/math/lazy` 导入 `createLazyKaTeXRenderer`，把 `createLazyKaTeXRenderer()` 传给 `surface.renderMath`。KaTeX 首次遇到公式时才加载。同步版本位于 `@jot-md/editor/math`。两种方式都需要 `math.css` 或已包含公式样式的 `styles.css`。
 - **Mermaid**。从 `@jot-md/editor/mermaid` 导入 `createMermaidPlugin`，把插件加入 `plugins`。应用提供 `load` 函数加载自己的 Mermaid 依赖，渲染器只处理标记为 Mermaid 的代码块。
 - **标题折叠**。从 `@jot-md/editor/heading-fold` 导入 `createHeadingFoldPlugin`，把 `createHeadingFoldPlugin()` 加入 `plugins`。点击标题旁的按钮可以折叠章节。macOS 默认按 Control–Shift–O，其他平台按 Ctrl–Alt–F。折叠状态只影响显示，源文本完整保留。
+- **编辑工具栏**。从 `@jot-md/editor/toolbar` 导入 `createToolbarPlugin`，把 `createToolbarPlugin()` 加入 `plugins`。工具栏用图标提供撤销、重做、正文格式、搜索和命令面板。标题菜单支持 H1–H6。表格可点选格子，也可输入行列数，行数包含表头（1–100 行、1–50 列）。只读时禁用修改正文的按钮，搜索仍可用。宿主也可用 `editor.insertTable({ rows: 4, columns: 3 })` 在当前选区插入指定尺寸的表格。
+
+```ts
+import { createToolbarPlugin } from "@jot-md/editor/toolbar";
+
+const editor = new MarkdownEditor({
+  root,
+  session,
+  plugins: [createToolbarPlugin({ enabled: false })],
+});
+await editor.open();
+await editor.setPluginEnabled("toolbar", true);
+```
+
+无需工具栏时可以省略该导入和插件注册。开启后可用 `setPluginEnabled("toolbar", false)` 卸载工具栏，样式可通过 `.jot-editor-toolbar` 和 `.jot-editor-toolbar__button` 定制。
+
+标题菜单也可切回正文。「更多格式和插入」包含删除线、任务列表、行内公式、图片、代码块、块公式和分隔线。链接命令在现有链接内选中地址以便修改。插入表格或分隔线时，若已有选区，新块放在最后一条选中行之后。
+
+### 自定义工具栏
+
+用 `className` 加自定义样式，用 `groups` 按命令 ID 选择和排列按钮，用 `renderIcon(command, document)` 返回自己的图标节点。返回 `undefined` 时使用内置图标，未配图标的自定义命令显示命令名称。
+
+```ts
+createToolbarPlugin({
+  className: "notes-toolbar",
+  groups: [
+    ["history.undo", "history.redo"],
+    ["toolbar.open-heading", "format.bold", "toolbar.open-table"],
+    ["search.open"],
+  ],
+});
+```
+
+```css
+.notes-toolbar {
+  --jot-toolbar-background: #eef5f1;
+  --jot-toolbar-text: #22352e;
+  --jot-toolbar-accent: #08795e;
+  --jot-toolbar-button-size: 38px;
+  --jot-toolbar-icon-size: 18px;
+}
+```
+
+也可省略工具栏插件，在挂载点外渲染自己的按钮。用 `editor.canEdit` 判断编辑按钮当前可用性，鼠标按下时保留编辑区选区，点击时执行同一个命令。
+
+```ts
+boldButton.addEventListener("mousedown", (event) => {
+  if (event.button === 0) event.preventDefault();
+});
+boldButton.addEventListener("click", () => {
+  if (editor.canEdit && editor.executeCommand("format.bold", undefined, { preserveViewport: true })) {
+    editor.focus();
+  }
+});
+```
+
+自建表格选择器可调用 `editor.insertTable({ rows, columns }, { preserveViewport: true })`，搜索按钮可调用 `editor.openSearch()`。快捷键设置包含所有已注册命令，未分配的快捷键可以直接填写。也可以用 `editor.commands.configureShortcuts({ "toolbar.open-table": "Mod-Alt-t", "format.strikethrough": "Mod-Alt-s" })` 配置。选择器命令是 `toolbar.open-heading`、`toolbar.open-table` 和 `toolbar.open-more`。
 
 需要直接管理会话或观察渲染耗时时，可分别从 `@jot-md/editor/adapter` 和 `@jot-md/editor/observability` 导入对应接口。自定义输入、预览和 Worker 时使用 `/source`、`/preview`、`/render`、`/worker` 子路径。
 

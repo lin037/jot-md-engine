@@ -65,6 +65,7 @@ import {
   resolveOptimisticEmptyMarkerKind,
 } from "./empty-block-input.js";
 import { canPaintRuntimeSearchRange, LivePreviewSearchHighlights, revealRuntimeSearchRange } from "./search-highlights.js";
+import { sameSearchPattern } from "../shared/search-pattern.js";
 import {
   beginLivePreviewPointerSelection,
   cancelLivePreviewPointerSelection,
@@ -261,6 +262,7 @@ export class LivePreviewController {
   // 对应源码块。它只是 selection-driven presentation 的一次性补充，不是第二
   // 个 active/caret 状态；hover 永远不会触发它。
   #pendingSourceReveal: { readonly from: number; readonly to: number } | undefined;
+  #linkSelectionActive = false;
   #searchSourceReveal = false;
   #searchSelectionActive = false;
   #hiddenPresentationRanges: readonly { readonly from: number; readonly to: number }[] = [];
@@ -1198,24 +1200,27 @@ export class LivePreviewController {
       markLivePreviewUserScroll(update.view);
     }
     if (update.selectionSet && !update.docChanged) this.#preparePendingEmptyAfterSelection(update.view);
+    if (update.selectionSet || update.docChanged) {
+      // The URL is real selected text and must stay editable until the next gesture.
+      this.#linkSelectionActive = update.transactions.some(transaction =>
+        transaction.isUserEvent("input.format.link") || transaction.isUserEvent("select.format.link"));
+    }
     const query = getSearchQuery(update.state);
     const previousQuery = getSearchQuery(update.startState);
-    const queryChanged = !query.eq(previousQuery);
-    if (query.search !== previousQuery.search || query.regexp !== previousQuery.regexp ||
-        query.caseSensitive !== previousQuery.caseSensitive || query.wholeWord !== previousQuery.wholeWord ||
-        query.literal !== previousQuery.literal) {
+    const queryChanged = !sameSearchPattern(query, previousQuery);
+    if (queryChanged) {
       // A new query does not inherit the old query's selected-hit proof.
       // In particular, paint must not scan the rest of a huge document trying
       // to validate an obsolete selection while debounce is pending.
       this.#searchSelectionActive = false;
       this.#pendingSearchScroll = undefined;
       this.#searchScrollTarget = undefined;
+      if (this.#searchSourceReveal) this.#pendingSourceReveal = undefined;
+      this.#searchSourceReveal = false;
     }
     const panelClosed = searchPanelOpen(update.startState) && !searchPanelOpen(update.state);
     if (update.selectionSet) {
       const selection = update.state.selection.main;
-      const previousForcedRoot = this.#searchSourceReveal
-        ? resolveSourceRootAt(this.#source, this.#visibleNodes, update.startState.selection.main.from) : undefined;
       let searchSelection = update.transactions.some(transaction => transaction.isUserEvent("select.search"));
       if (!searchSelection && query.valid && update.transactions.some(transaction => transaction.isUserEvent("input.replace"))) {
         const match = query.getCursor(update.state, selection.from).next();
@@ -1233,17 +1238,11 @@ export class LivePreviewController {
         this.#pendingSearchScroll = undefined;
         this.#searchScrollTarget = undefined;
       }
-      const staysInForcedRoot = previousForcedRoot !== undefined &&
-        Number(previousForcedRoot.sourceRange.from) <= selection.from && selection.to <= Number(previousForcedRoot.sourceRange.to);
-      const nativeHit = this.#searchSelectionActive && !this.#awaitingConfirmation &&
-        !staysInForcedRoot && !this.#hiddenPresentationRanges.some(range =>
-        range.from < selection.to && selection.from < range.to) &&
-        update.view.visibleRanges.some(range => range.from <= selection.from && selection.to <= range.to);
-      const renderedHit = this.#searchSelectionActive && !nativeHit && !staysInForcedRoot &&
-        !update.docChanged && this.#sourceIsConfirmed() &&
-        canPaintRuntimeSearchRange(update.view, selection);
+      const hidden = this.#searchSelectionActive && this.#hiddenPresentationRanges.some(range =>
+        range.from < selection.to && selection.from < range.to);
       this.#searchSourceReveal = this.#searchSelectionActive &&
-        (selection.empty || update.docChanged || staysInForcedRoot || !(nativeHit || renderedHit));
+        (selection.empty || update.docChanged ||
+          (hidden && (!this.#sourceIsConfirmed() || !canPaintRuntimeSearchRange(update.view, selection))));
       if (!selection.empty && !this.#searchSourceReveal) this.#pendingSourceReveal = undefined;
       if (this.#searchSourceReveal && update.state.selection.ranges.length === 1) {
         const from = update.state.selection.main.from;
@@ -1505,7 +1504,9 @@ export class LivePreviewController {
     const selectedOpening = !this.#searchSelectionActive && view.state.selection.ranges.length === 1 &&
       !main.empty && resolveLivePreviewOpeningRange(nodes, main.head) !== undefined
       ? { from: main.head, to: main.head } : undefined;
-    const pendingReveal = this.#pendingSourceReveal ?? selectedOpening;
+    const pendingReveal = this.#linkSelectionActive
+      ? { from: main.from, to: main.from }
+      : this.#pendingSourceReveal ?? selectedOpening;
     const selections = sourcePresentationRanges({
       composing: this.#composing,
       visibleRange: visible,
@@ -1605,6 +1606,16 @@ export class LivePreviewController {
       },
     });
     if (epoch !== this.#epoch || this.#disposed || !this.#enabled) return;
+    // A hit can be visible in the current caret's source lines but disappear
+    // when a non-collapsed search selection restores Preview. Replan before
+    // applying that replacement, so the exact character stays paintable.
+    if (this.#searchSelectionActive && !this.#searchSourceReveal &&
+        plan.decorations.some(item => item.type === "replace" && item.from < main.to && main.from < item.to) &&
+        !canPaintRuntimeSearchRange(view, main)) {
+      this.#searchSourceReveal = true;
+      this.#schedule(false);
+      return;
+    }
     this.#applyingPlan = true;
     try {
       preserveLivePreviewViewport(view, () => {

@@ -78,6 +78,15 @@ export class EditorCommandRegistry {
     return [...this.#defaults.values()];
   }
 
+  /** One editable shortcut slot per command, plus any additional named bindings. */
+  get shortcutSettings(): readonly { readonly id: string; readonly command: string; readonly key?: string }[] {
+    const defaults = this.defaultShortcuts;
+    const configured = new Set(defaults.map((binding) => binding.command));
+    return [...defaults, ...this.commands
+      .filter((command) => !configured.has(command.id) && !this.#defaults.has(command.id))
+      .map(({ id }) => ({ id, command: id }))];
+  }
+
   get shortcutPlatform(): "mac" | "windows" | undefined {
     return this.#shortcutPlatform;
   }
@@ -123,12 +132,13 @@ export class EditorCommandRegistry {
   ): EditorShortcut[] {
     const next = new Map(Array.from(active, shortcut => [shortcut.id, shortcut]));
     for (const [id, key] of Object.entries(overrides)) {
-      const original = defaults.get(id);
-      if (original === undefined) throw new Error(`unknown editor shortcut: ${id}`);
+      const command = defaults.get(id)?.command ?? this.#commands.get(id)?.id;
+      if (command === undefined) throw new Error(`unknown editor shortcut: ${id}`);
       if (key === null) next.delete(id);
       else {
         if (key.trim().length === 0) throw new Error(`empty key for shortcut: ${id}`);
-        next.set(id, { ...original, key: shortcutKey(key.trim(), platform) });
+        normalizedKeys(key.trim());
+        next.set(id, { id, command, key: shortcutKey(key.trim(), platform) });
       }
     }
     const keys = new Map<string, string>();

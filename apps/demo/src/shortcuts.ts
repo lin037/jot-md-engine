@@ -50,9 +50,9 @@ export function bindShortcuts(editor: MarkdownEditor): () => void {
 
   function currentOverrides(): string {
     const active = new Map(commands.shortcuts.map(binding => [binding.id, binding.key]));
-    return JSON.stringify(Object.fromEntries(commands.defaultShortcuts.flatMap(binding => {
+    return JSON.stringify(Object.fromEntries(commands.shortcutSettings.flatMap(binding => {
       const key = active.get(binding.id) ?? null;
-      return key === binding.key ? [] : [[binding.id, key]];
+      return key === (binding.key ?? null) ? [] : [[binding.id, key]];
     })));
   }
 

@@ -15,6 +15,7 @@ import {
 import { redo, undo } from "@codemirror/commands";
 import { EditorView, runScopeHandlers, type Command, type Panel, type ViewUpdate } from "@codemirror/view";
 import { EditorSelection, Transaction, type Extension } from "@codemirror/state";
+import { sameSearchPattern } from "../shared/search-pattern.js";
 
 /** UTF-16 source search; decorations and virtualized DOM never become a search index. */
 export interface EditorSearchQuery {
@@ -27,7 +28,7 @@ export interface EditorSearchQuery {
 }
 
 export function sourceSearch(): Extension {
-  return [search({ top: true, createPanel: (view) => new SourceSearchPanel(view) }), searchTheme];
+  return [search({ createPanel: (view) => new SourceSearchPanel(view) }), searchTheme];
 }
 
 export function updateSourceSearch(view: EditorView, query: EditorSearchQuery): void {
@@ -38,7 +39,7 @@ export function openSourceSearch(view: EditorView, replace = false): boolean {
   openSearchPanel(view);
   if (replace && !view.state.readOnly && getSearchQuery(view.state).valid) {
     const field = view.dom.querySelector<HTMLInputElement>(".cm-search input[name=replace]");
-    field?.focus();
+    field?.focus({ preventScroll: true });
     field?.select();
   }
   return true;
@@ -86,7 +87,6 @@ export function executeSourceAction(view: EditorView, action: string): boolean |
  */
 class SourceSearchPanel implements Panel {
   readonly dom: HTMLElement;
-  readonly top = true;
   readonly #view: EditorView;
   readonly #search: HTMLInputElement;
   readonly #replace: HTMLInputElement;
@@ -165,12 +165,17 @@ class SourceSearchPanel implements Panel {
       });
       return input;
     };
-    const button = (name: string, label: string, run: () => boolean) => {
+    const button = (name: string, label: string, run: () => boolean, icon?: string) => {
       const element = document.createElement("button");
       element.type = "button";
       element.name = name;
       element.className = "cm-button jot-search-button";
-      element.textContent = label;
+      element.textContent = icon ?? label;
+      if (icon !== undefined) {
+        element.classList.add("jot-search-button--icon");
+        element.setAttribute("aria-label", label);
+        element.title = label;
+      }
       element.addEventListener("click", () => this.#run(run, name !== "close"));
       return element;
     };
@@ -191,9 +196,9 @@ class SourceSearchPanel implements Panel {
     this.#search = field("search", "搜索");
     this.#search.setAttribute("main-field", "true");
     row.append(this.#search,
-      button("prev", "上一个", () => findPrevious(view)),
-      button("next", "下一个", () => findNext(view)),
-      button("close", "关闭", () => closeSearchPanel(view)));
+      button("prev", "上一个", () => findPrevious(view), "↑"),
+      button("next", "下一个", () => findNext(view), "↓"),
+      button("close", "关闭", () => closeSearchPanel(view), "×"));
     const options = document.createElement("div");
     options.className = "jot-search-options";
     this.#case = checkbox("case", "区分大小写");
@@ -236,7 +241,7 @@ class SourceSearchPanel implements Panel {
     this.#sync();
   }
 
-  mount(): void { this.#search.focus(); this.#search.select(); }
+  mount(): void { this.#search.focus({ preventScroll: true }); this.#search.select(); }
 
   destroy(): void {
     this.#destroyed = true;
@@ -281,11 +286,9 @@ class SourceSearchPanel implements Panel {
       regexp: this.#regexp.checked,
       literal: previous.literal,
     });
-    const query = getSearchQuery(this.#view.state);
-    const changedSearch = previous.search !== query.search ||
-      previous.caseSensitive !== query.caseSensitive || previous.wholeWord !== query.wholeWord ||
-      previous.regexp !== query.regexp;
-    if (!changedSearch) return;
+    const start = this.#view.state;
+    const query = getSearchQuery(start);
+    if (sameSearchPattern(previous, query)) return;
     this.#cancelSearch();
     if (!query.valid) return;
     // Only navigation is debounced. CM keeps ownership of query matching,
@@ -296,8 +299,9 @@ class SourceSearchPanel implements Panel {
       // A click into the document wins over a pending incremental search.
       // Explicit Find Next commands keep their own synchronous navigation.
       if (!this.dom.contains(this.dom.ownerDocument.activeElement) ||
-          !query.eq(getSearchQuery(state))) return;
-      const origin = state.selection.main.from;
+          !sameSearchPattern(query, getSearchQuery(state)) ||
+          state.doc !== start.doc || !state.selection.eq(start.selection)) return;
+      const origin = start.selection.main.from;
       let match = query.getCursor(state, origin).next();
       if (match.done && origin > 0) match = query.getCursor(state, 0, origin).next();
       if (match.done) {
@@ -334,15 +338,26 @@ class SourceSearchPanel implements Panel {
 }
 
 const searchTheme = EditorView.baseTheme({
+  ".cm-panels.cm-panels-bottom:has(> .jot-search-panel)": {
+    borderTop: "1px solid color-mix(in srgb, var(--jot-text-color, CanvasText) 14%, transparent)",
+  },
   ".cm-panel.cm-search.jot-search-panel": {
-    padding: "8px", color: "var(--jot-foreground, inherit)", background: "var(--jot-background, Canvas)", fontFamily: "inherit", fontSize: "13px",
-    "& .jot-search-row": { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" },
-    "& .jot-search-options": { display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center", marginBlock: "6px" },
-    "& .jot-search-options label": { display: "inline-flex", gap: "3px", alignItems: "center" },
+    "--jot-search-border": "color-mix(in srgb, currentColor 18%, transparent)",
+    padding: "8px 10px", color: "var(--jot-text-color, CanvasText)",
+    background: "color-mix(in srgb, var(--jot-background, Canvas) 97%, currentColor)",
+    font: "13px/1.4 system-ui, sans-serif",
+    "& .jot-search-row": { display: "flex", gap: "4px", alignItems: "center", flexWrap: "wrap" },
+    "& .jot-search-options": { display: "flex", flexWrap: "wrap", gap: "4px 10px", alignItems: "center", marginBlock: "5px" },
+    "& .jot-search-options label": { display: "inline-flex", gap: "4px", alignItems: "center" },
+    "& input[type=checkbox]": { accentColor: "var(--jot-link-color, auto)" },
     "& input, & button, & label": { margin: "0" },
-    "& .jot-search-input": { minWidth: "80px", flex: "1 1 160px", boxSizing: "border-box", maxWidth: "100%", padding: "4px 6px", border: "1px solid color-mix(in srgb, currentColor 25%, transparent)", borderRadius: "4px", color: "inherit", background: "transparent" },
-    "& .jot-search-input[aria-invalid=true]": { outline: "1px solid #c33" },
-    "& .jot-search-button": { padding: "3px 7px", borderRadius: "4px", font: "inherit", color: "inherit", background: "transparent", border: "1px solid color-mix(in srgb, currentColor 25%, transparent)" },
+    "& .jot-search-input": { minWidth: "76px", flex: "1 1 76px", boxSizing: "border-box", maxWidth: "100%", minHeight: "30px", padding: "4px 8px", font: "inherit", border: "1px solid var(--jot-search-border)", borderRadius: "6px", color: "inherit", background: "var(--jot-background, Canvas)" },
+    "& .jot-search-input::placeholder": { color: "var(--jot-muted-color, inherit)", opacity: ".74" },
+    "& .jot-search-input[aria-invalid=true]": { borderColor: "var(--jot-search-error-color, #cb5353)" },
+    "& .jot-search-button": { minHeight: "30px", padding: "3px 8px", borderRadius: "6px", font: "inherit", color: "inherit", background: "transparent", border: "1px solid var(--jot-search-border)", cursor: "pointer", whiteSpace: "nowrap" },
+    "& .jot-search-button--icon": { width: "30px", padding: "0", borderColor: "transparent", fontSize: "16px" },
+    "& .jot-search-button:hover:not(:disabled)": { background: "color-mix(in srgb, currentColor 8%, transparent)" },
+    "& :focus-visible": { outline: "2px solid var(--jot-link-color, currentColor)", outlineOffset: "-2px" },
     "& .jot-search-row > button[name=close]": { position: "static" },
     "& .jot-search-button:disabled, & .jot-search-input:disabled": { opacity: ".45" },
     "& .jot-search-status": { fontSize: "12px" },

@@ -68,6 +68,11 @@ function block_insertion_reuses_existing_separators(): void {
   const atEnd = execute("insert.thematic-break", "left\n\n", 6).state;
   equal(text(atEnd), "left\n\n---\n\n");
   equal(atEnd.selection.main.head, text(atEnd).length);
+
+  const selected = "keep this sentence\n\nnext";
+  equal(text(execute("insert.thematic-break", selected, 0, 4).state), "keep this sentence\n\n---\n\nnext");
+  const table = execute("insert.table", selected, 4, 0).state;
+  equal(text(table), "keep this sentence\n\n| A | B |\n| --- | --- |\n|  |  |\n\nnext");
 }
 
 function line_prefixes_preserve_blank_lines_indentation_and_selection_direction(): void {
@@ -141,8 +146,51 @@ function default_shortcuts_follow_the_host_platform(): void {
   equal(mac.shortcutForEvent(shiftedDigit, true)?.command, "format.heading-1");
 }
 
+function link_commands_reuse_the_destination_without_wrapping_it_again(): void {
+  const created = execute("format.link", "链接", 0, 2).state;
+  equal(text(created), "[链接](https://)");
+  const again = execute("format.link", text(created), created.selection.main.anchor, created.selection.main.head);
+  equal(text(again.state), text(created));
+  equal(selected(again.state), "https://");
+  equal(again.result.edits, undefined);
+  const titled = '[a](https://example.test/(path) "说明")';
+  const existing = execute("format.link", titled, 1);
+  equal(text(existing.state), titled);
+  equal(selected(existing.state), "https://example.test/(path)");
+  equal(selected(execute("format.link", "[a]()", 1).state), "");
+  equal(text(execute("format.link", "a]b", 0, 3).state), "[a\\]b](https://)");
+  const continued = execute("format.bold", titled + " tail", 4, 18).state;
+  equal(text(type(continued, "next")), titled + "**next** tail");
+  equal(text(execute("format.bold", titled, 1, 2).state),
+    '[**a**](https://example.test/(path) "说明")');
+}
+
+function optional_shortcuts_and_new_formats_use_registered_commands(): void {
+  const registry = createDefaultEditorCommandRegistry();
+  for (const id of ["toolbar.open-heading", "toolbar.open-table", "toolbar.open-more", "insert.table",
+    "format.bullet-list", "format.strikethrough", "format.math", "format.task-list", "format.paragraph"]) {
+    equal(registry.shortcutSettings.some((setting) => setting.id === id), true);
+    equal(registry.shortcuts.some((binding) => binding.command === id), false);
+  }
+  registry.configureShortcuts({ "toolbar.open-table": "F8", "format.task-list": "F10" });
+  equal(registry.shortcutForEvent({ key: "F8" })?.command, "toolbar.open-table");
+  registry.setShortcutDefaults({}, { "toolbar.open-table": "F9" }, "mac");
+  equal(registry.shortcutForEvent({ key: "F8" }), undefined);
+  equal(registry.shortcutForEvent({ key: "F9" })?.command, "toolbar.open-table");
+  registry.resetShortcuts();
+  equal(registry.shortcutForEvent({ key: "F9" }), undefined);
+  equal(text(execute("format.strikethrough", "a", 0, 1).state), "~~a~~");
+  equal(text(execute("format.math", "x+y", 0, 3).state), "$x+y$");
+  equal(text(execute("format.task-list", "1. item", 3).state), "- [ ] item");
+  equal(text(execute("format.task-list", "+ [x] item", 6).state), "item");
+  equal(text(execute("format.paragraph", "  #### title", 8).state), "  title");
+  equal(execute("format.heading-4", "#### title", 5).result.edits?.length, 0);
+}
+
 inserted_blocks_accept_the_first_keystroke_at_their_content();
 block_insertion_reuses_existing_separators();
 line_prefixes_preserve_blank_lines_indentation_and_selection_direction();
 registry_native_actions_and_remapped_shortcuts_have_one_identity();
 default_shortcuts_follow_the_host_platform();
+link_commands_reuse_the_destination_without_wrapping_it_again();
+optional_shortcuts_and_new_formats_use_registered_commands();

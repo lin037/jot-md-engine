@@ -5,6 +5,12 @@ import type {
   TransactionOrigin,
 } from "@jot-md/editor-protocol";
 
+export interface TableInsertionSize {
+  /** Number of visible rows, including the header. */
+  readonly rows: number;
+  readonly columns: number;
+}
+
 /**
  * 与具体输入控件无关的命令上下文。源码和选区都是 UTF-16 偏移，因而可以被
  * CodeMirror、菜单、命令面板和未来的扩展 SDK 复用。
@@ -16,6 +22,7 @@ export interface EditorCommandContext {
   readonly block?: BlockMetadata | undefined;
   /** CodeMirror 多选数量；未由非 CodeMirror 宿主提供时按单一选区处理。 */
   readonly selectionCount?: number;
+  readonly tableSize?: TableInsertionSize;
 }
 
 /** 一个命令要提交的源码变更与可选的新选区。 */

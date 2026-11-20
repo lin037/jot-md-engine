@@ -61,6 +61,7 @@ import { createKaTeXRenderer, type KaTeXRendererOptions } from "@jot-md/editor/m
 import { createLazyKaTeXRenderer } from "@jot-md/editor/math/lazy";
 import { createMermaidPlugin, type MermaidPluginOptions } from "@jot-md/editor/mermaid";
 import { createHeadingFoldPlugin } from "@jot-md/editor/heading-fold";
+import { createToolbarPlugin, type ToolbarOptions } from "@jot-md/editor/toolbar";
 import { CodeMirrorSource } from "@jot-md/editor/source";
 import { EditorEventObserver } from "@jot-md/editor/observability";
 import { EditorSurface } from "@jot-md/editor/preview";
@@ -96,6 +97,16 @@ void createLazyKaTeXRenderer(mathOptions);
 const mermaidOptions = null as unknown as MermaidPluginOptions;
 void createMermaidPlugin;
 void createHeadingFoldPlugin({ enabled: false });
+const toolbar: ToolbarOptions = {
+  enabled: false,
+  className: "consumer-toolbar",
+  groups: [["format.bold", "toolbar.open-table"]],
+  renderIcon: (id, document) => id === "format.bold" ? document.createTextNode("B") : undefined,
+};
+void createToolbarPlugin(toolbar);
+const runExternalButton = (editor: MarkdownEditor) =>
+  editor.canEdit && editor.executeCommand("format.bold", undefined, { preserveViewport: true });
+void runExternalButton;
 void mermaidOptions;
 void CodeMirrorSource;
 void EditorEventObserver;
@@ -162,6 +173,10 @@ if (rootMath.createMermaidPlugin !== dedicatedMermaid.createMermaidPlugin) {
 const dedicatedHeadingFold = await import("@jot-md/editor/heading-fold");
 if (rootMath.createHeadingFoldPlugin !== dedicatedHeadingFold.createHeadingFoldPlugin) {
   throw new Error("heading-fold subpath must retain the root plugin identity");
+}
+const { createToolbarPlugin } = await import("@jot-md/editor/toolbar");
+if (createToolbarPlugin().id !== "toolbar" || createToolbarPlugin({ enabled: false }).enabled !== false) {
+  throw new Error("the toolbar subpath must export an optional editor plugin");
 }
 let mermaidInstalled = true;
 try { import.meta.resolve("mermaid"); } catch { mermaidInstalled = false; }
