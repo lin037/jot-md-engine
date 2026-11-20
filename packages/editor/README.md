@@ -7,7 +7,7 @@ Jot 是一个浏览器 Markdown 编辑器。CodeMirror 处理键盘输入、选�
 在应用目录中安装编辑器。下面用 Vite 和 TypeScript 举例。
 
 ```sh
-npm install https://github.com/lin037/jot-md-engine/releases/download/v0.1.0/jot-md-editor-0.1.0.tgz
+npm install https://github.com/lin037/jot-md-engine/releases/download/v0.2.0/jot-md-editor-0.2.0.tgz
 ```
 
 在 `index.html` 为编辑器留出高度，并加载主线程入口。

@@ -33,7 +33,7 @@ Jot 将前端交互与底层解析解耦：CodeMirror 6 在主线程负责输入
 在应用目录安装编辑器包：
 
 ```zsh
-npm install https://github.com/lin037/jot-md-engine/releases/download/v0.1.0/jot-md-editor-0.1.0.tgz
+npm install https://github.com/lin037/jot-md-engine/releases/download/v0.2.0/jot-md-editor-0.2.0.tgz
 ```
 
 主线程导入编辑器，模块 Worker 导入启动函数：

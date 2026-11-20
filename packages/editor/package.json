@@ -1,6 +1,6 @@
 {
   "name": "@jot-md/editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Framework-neutral Markdown editor component backed by the Jot Rust/Wasm engine",
   "repository": {

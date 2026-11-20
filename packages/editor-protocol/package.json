@@ -1,6 +1,6 @@
 {
   "name": "@jot-md/editor-protocol",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "TypeScript wire contracts for the Jot Markdown editor protocol",
   "repository": {
