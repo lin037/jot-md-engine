@@ -403,7 +403,7 @@ export class EditorDocumentAdapter {
     if (patch === undefined || patch.viewRevision !== this.#viewRevision) {
       return { projectionChanged: false };
     }
-    if (patch.operations.every((operation) => operation.axis === "heading-section")) {
+    if (patch.operations.every(({ axis }) => axis === "heading-section" || axis === "heading-outline")) {
       return { projectionChanged: false, renderPatch: patch };
     }
     if (!this.projection.apply(patch)) return { projectionChanged: false };

@@ -1,3 +1,5 @@
+mod outline;
+
 use editor_protocol::{
     DocumentId, ProjectionAxis, ProjectionMode, ProjectionRequest, ProjectionSlice,
     ProjectionWindow, RenderAttribute, RenderContent, RenderMode, RenderNode, RenderOperation,
@@ -76,7 +78,9 @@ pub fn project_source_fallback(
         .map(|slice| {
             if matches!(
                 slice.axis,
-                ProjectionAxis::HeadingSection | ProjectionAxis::QuoteLines
+                ProjectionAxis::HeadingSection
+                    | ProjectionAxis::HeadingOutline
+                    | ProjectionAxis::QuoteLines
             ) {
                 empty_operation(slice)
             } else if slice.axis == ProjectionAxis::SourceLines {
@@ -136,6 +140,7 @@ fn project_slice(
         ProjectionAxis::HeadingSection => {
             heading_section_operation(text, syntax, slice, mode, true)
         }
+        ProjectionAxis::HeadingOutline => outline::operation(syntax, parent, slice, mode),
     }
 }
 

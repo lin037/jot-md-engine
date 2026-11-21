@@ -34,6 +34,11 @@ try {
   const initialScripts = await client.evaluate(`performance.getEntriesByType('resource').map(entry => new URL(entry.name).pathname.split('/').at(-1))`);
   assert.deepEqual(oversizedChunks.filter(file => initialScripts.includes(file)), [],
     "the default article must not fetch oversized JavaScript chunks");
+  assert(!initialScripts.some(file => /^outline-/.test(file)), "outline is loaded on demand");
+  await client.evaluate("document.querySelector('#open-outline').click()");
+  await wait("document.querySelector('#outline-panel .jot-outline__row')?.textContent === '排版手记'");
+  await client.evaluate("document.querySelector('#close-inspector').click()");
+  await wait("!document.querySelector('.jot-outline')");
   for (const width of [1440, 390]) {
     await client.command("Emulation.setDeviceMetricsOverride", { width, height: 1000, deviceScaleFactor: 1, mobile: false });
     for (const mode of ["split", "preview", "live-preview", "source", "pretext"]) {

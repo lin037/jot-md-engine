@@ -33,6 +33,8 @@ pub enum ProjectionAxis {
     QuoteLines,
     /// Derived section boundaries for one confirmed top-level heading.
     HeadingSection,
+    /// Source-ordered, windowed top-level headings under the document root.
+    HeadingOutline,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

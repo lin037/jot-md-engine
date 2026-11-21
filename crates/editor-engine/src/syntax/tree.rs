@@ -164,7 +164,7 @@ pub struct SyntaxSnapshot {
     nodes: Vec<SyntaxNode>,
     node_index: HashMap<NodeId, usize>,
     next_node_id: u64,
-    // Built only for consumers requesting section boundaries. This is derived
+    // Built only for consumers requesting root headings. This is derived
     // state, not part of syntax identity or equality.
     heading_index: HeadingIndexCache,
 }
@@ -186,10 +186,10 @@ struct HeadingIndex {
 }
 
 #[derive(Clone, Debug)]
-struct HeadingIndexEntry {
-    id: NodeId,
-    block: usize,
-    level: u8,
+pub(crate) struct HeadingIndexEntry {
+    pub(crate) id: NodeId,
+    pub(crate) block: usize,
+    pub(crate) level: u8,
     next: Option<usize>,
 }
 
@@ -286,7 +286,17 @@ impl SyntaxSnapshot {
     /// Root heading and its next same-or-higher-level root heading. The index
     /// is shared by cloned snapshots and retains IDs/slots, never copied text.
     pub(crate) fn heading_section(&self, id: NodeId) -> Option<(usize, u8, Option<usize>)> {
-        let index = self.heading_index.0.get_or_init(|| {
+        let index = self.heading_index();
+        let entry = index.entries.get(*index.by_id.get(&id)?)?;
+        Some((entry.block, entry.level, entry.next))
+    }
+
+    pub(crate) fn headings(&self) -> &[HeadingIndexEntry] {
+        &self.heading_index().entries
+    }
+
+    fn heading_index(&self) -> &HeadingIndex {
+        self.heading_index.0.get_or_init(|| {
             let mut entries: Vec<HeadingIndexEntry> = Vec::new();
             let mut by_id = HashMap::new();
             let mut open: Vec<usize> = Vec::new();
@@ -315,10 +325,7 @@ impl SyntaxSnapshot {
                 });
             }
             Arc::new(HeadingIndex { entries, by_id })
-        });
-        let entry = index.entries.get(*index.by_id.get(&id)?)?;
-        debug_assert_eq!(entry.id, id);
-        Some((entry.block, entry.level, entry.next))
+        })
     }
 
     pub(crate) fn with_id_allocator(mut self, ids: NodeIdAllocator) -> Self {

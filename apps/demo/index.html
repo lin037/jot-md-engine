@@ -13,6 +13,7 @@
           <div class="identity"><img id="brand-logo" alt="" width="30" height="30" /><h1>Jot Markdown</h1></div>
           <nav class="header-actions" aria-label="工作台面板">
             <button id="open-shortcuts" type="button" aria-haspopup="dialog" disabled>快捷键</button>
+            <button id="open-outline" type="button" aria-controls="inspector" aria-expanded="false" disabled>大纲</button>
             <button id="open-style" type="button" aria-controls="inspector" aria-expanded="false" disabled>样式</button>
             <button id="open-performance" type="button" aria-controls="inspector" aria-expanded="false" disabled>运行数据</button>
           </nav>
@@ -55,6 +56,7 @@
             <h2 id="inspector-title">样式</h2>
             <button id="close-inspector" type="button" aria-label="关闭侧栏">关闭</button>
           </header>
+          <div id="outline-panel" class="panel-body" hidden></div>
           <section id="style-panel" class="panel-body" hidden>
             <div class="field-grid">
               <label>字体 <select id="font" disabled>

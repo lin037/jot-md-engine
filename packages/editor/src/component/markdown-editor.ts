@@ -107,6 +107,7 @@ export class MarkdownEditor {
   #opened = false;
   #opening: Promise<void> | undefined;
   #disposed = false;
+  #lifetime: AbortController | undefined;
   #readOnly: boolean;
   readonly #onFontsLoaded = (): void => {
     if (!this.#disposed && this.#opened) void this.invalidateLayout().catch((error) => this.#onError?.(error));
@@ -331,6 +332,13 @@ export class MarkdownEditor {
     return this.session.adapter.revision;
   }
 
+  /** External views can release their subscriptions when this editor is disposed. */
+  get disposeSignal(): AbortSignal {
+    const lifetime = this.#lifetime ??= new AbortController();
+    if (this.#disposed && !lifetime.signal.aborted) lifetime.abort();
+    return lifetime.signal;
+  }
+
   async open(): Promise<void> {
     this.#assertLive();
     if (this.#opened) return;
@@ -409,7 +417,7 @@ export class MarkdownEditor {
   /** Enable or disable a registered plugin without changing the document. */
   async setPluginEnabled(id: string, enabled: boolean): Promise<void> {
     this.#assertLive();
-    if (this.#plugins.setEnabled(this, id, enabled, this.#onError) && this.#opened) {
+    if (this.#plugins.setEnabled(this, id, enabled, this.#onError) && this.#opened && this.#plugins.affectsEditorLayout(id)) {
       await this.invalidateLayout();
     }
   }
@@ -557,6 +565,7 @@ export class MarkdownEditor {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#lifetime?.abort();
     this.#plugins.dispose(this.#onError);
     this.#commandActions.clear();
     this.#root.ownerDocument.fonts?.removeEventListener("loadingdone", this.#onFontsLoaded);

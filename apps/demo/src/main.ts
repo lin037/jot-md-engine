@@ -105,6 +105,8 @@ const disposeShortcuts = bindShortcuts(editor);
 bindStyleLab();
 const runtime = bindRuntimePanel(editor, root);
 const inspector = document.querySelector<HTMLElement>("#inspector")!;
+const outlinePanel = document.querySelector<HTMLElement>("#outline-panel")!;
+const outlineButton = document.querySelector<HTMLButtonElement>("#open-outline")!;
 const stylePanel = document.querySelector<HTMLElement>("#style-panel")!;
 const performancePanel = document.querySelector<HTMLElement>("#performance-panel")!;
 const styleButton = document.querySelector<HTMLButtonElement>("#open-style")!;
@@ -112,15 +114,26 @@ const performanceButton = document.querySelector<HTMLButtonElement>("#open-perfo
 const commandsButton = document.querySelector<HTMLButtonElement>("#open-commands")!;
 const documentSize = document.querySelector("#document-size")!;
 const fontSize = document.querySelector<HTMLInputElement>("#font-size")!;
-let panel: "style" | "performance" | undefined;
+let panel: "style" | "performance" | "outline" | undefined;
+let outline: { dispose(): void } | undefined;
 
 function showPanel(next: typeof panel): void {
   const wasHidden = inspector.hidden;
   panel = next;
   inspector.hidden = next === undefined;
+  outlinePanel.hidden = next !== "outline";
+  outlineButton.setAttribute("aria-expanded", String(next === "outline"));
+  if (next === "outline") {
+    void import("../../../packages/editor/src/plugins/outline.js").then(({ mountOutline }) => {
+      if (panel === "outline" && !outline) outline = mountOutline(outlinePanel, editor);
+    }).catch(reportError);
+  } else {
+    outline?.dispose();
+    outline = undefined;
+  }
   stylePanel.hidden = next !== "style";
   performancePanel.hidden = next !== "performance";
-  document.querySelector("#inspector-title")!.textContent = next === "performance" ? "运行数据" : "样式";
+  document.querySelector("#inspector-title")!.textContent = next === "outline" ? "大纲" : next === "performance" ? "运行数据" : "样式";
   styleButton.setAttribute("aria-expanded", String(next === "style"));
   performanceButton.setAttribute("aria-expanded", String(next === "performance"));
   runtime.setVisible(next === "performance");
@@ -128,6 +141,7 @@ function showPanel(next: typeof panel): void {
   if (wasHidden !== inspector.hidden) void editor.invalidateLayout().catch(reportError);
 }
 
+outlineButton.addEventListener("click", () => showPanel(panel === "outline" ? undefined : "outline"));
 styleButton.addEventListener("click", () => {
   showPanel(panel === "style" ? undefined : "style");
   if (panel === "style") font.focus();
@@ -137,7 +151,7 @@ performanceButton.addEventListener("click", () => {
   if (panel === "performance") document.querySelector<HTMLButtonElement>("#load-large")!.focus();
 });
 function closePanel(): void {
-  const trigger = panel === "performance" ? performanceButton : styleButton;
+  const trigger = panel === "outline" ? outlineButton : panel === "performance" ? performanceButton : styleButton;
   showPanel(undefined);
   trigger.focus();
 }
@@ -236,6 +250,7 @@ insert.addEventListener("click", () => {
   } catch (error) { reportError(error); }
 });
 window.addEventListener("beforeunload", () => {
+  outline?.dispose();
   disposeShortcuts();
   unsubscribeCommandHint();
   runtime.dispose();
@@ -245,7 +260,7 @@ window.addEventListener("beforeunload", () => {
 void editor.open().then(() => {
   mode.disabled = font.disabled = codeWrap.disabled = load.disabled = insert.disabled = mermaid.disabled = headingFold.disabled = false;
   editorToolbar.disabled = false;
-  styleButton.disabled = performanceButton.disabled = commandsButton.disabled = false;
+  outlineButton.disabled = styleButton.disabled = performanceButton.disabled = commandsButton.disabled = false;
   shortcutsButton.disabled = false;
   updateStatus();
 }).catch(reportError);

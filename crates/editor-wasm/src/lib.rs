@@ -63,6 +63,7 @@ impl EditorHost {
                     "source-line-projection".to_owned(),
                     "quote-line-projection".to_owned(),
                     "heading-section-projection".to_owned(),
+                    "heading-outline-projection".to_owned(),
                     "analysis-commands".to_owned(),
                     "analysis-priority-ranges".to_owned(),
                     "analysis-work-budget".to_owned(),

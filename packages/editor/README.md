@@ -170,6 +170,22 @@ boldButton.addEventListener("click", () => {
 需要直接管理会话或观察渲染耗时时，可分别从 `@jot-md/editor/adapter` 和 `@jot-md/editor/observability` 导入对应接口。自定义输入、预览和 Worker 时使用 `/source`、`/preview`、`/render`、`/worker` 子路径。
 
 
+### 文档大纲
+
+从 `@jot-md/editor/outline` 单独导入。容器由应用提供，可以放在侧栏、抽屉或另一个面板中，也可以绑定到不同的编辑器实例。
+
+```ts
+import { mountOutline } from "@jot-md/editor/outline";
+
+const outline = mountOutline(sidebar, editor);
+// 关闭面板或切换编辑器时解除绑定。销毁编辑器会自动解除绑定。
+outline.dispose();
+```
+
+固定绑定到一个编辑器时，也可以把 `createOutlinePlugin({ container: sidebar, enabled: false })` 加入 `plugins`，用 `await editor.setPluginEnabled("outline", true)` 开启。禁用插件或销毁编辑器时会自动卸载。
+
+大纲与折叠共用引擎确认的文档顶层 H1–H6。选中标题会展开遮住它的章节，分栏模式会同时定位两侧。打开长文档时可先看到已经解析出的标题，解析完成后补齐，滚动时按可见行加载。键盘支持上下方向键、Home、End 和 Enter。行高可通过 `{ rowHeight: 36 }` 设置，容器支持 `--jot-outline-max-height`、`--jot-outline-indent` 和 `--jot-outline-accent`。
+
 ## 自定义样式
 
 给安装点加上自己的 class，例如 `root.classList.add("notes-editor")`，再在 `.notes-editor` 上设置 `--jot-background`、`--jot-text-color` 和 `--jot-link-color`。用 `.notes-editor .jot-md-heading` 改标题颜色，表格按钮可用 `.jot-table-toolbar__button`。需要运行时更新颜色时调用 `setTheme({ colors: { link: "#086c60" } })`。

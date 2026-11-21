@@ -109,7 +109,7 @@ export class ProjectionStore {
     this.#revision = patch.documentRevision;
     this.#viewRevision = patch.viewRevision;
     for (const operation of patch.operations) {
-      if (operation.axis === "heading-section") continue;
+      if (operation.axis === "heading-section" || operation.axis === "heading-outline") continue;
       if (operation.axis === "quote-lines") {
         let window = this.#quoteWindows.get(operation.parentId);
         if (window === undefined || window.total !== operation.totalChildren) {
