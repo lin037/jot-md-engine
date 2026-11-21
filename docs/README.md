@@ -2,7 +2,7 @@
 
 ## 使用编辑器
 
-- [编辑模式、键位与宿主配置](guides/editor.md)
+- [编辑模式、键位、文档大纲与宿主配置](guides/editor.md)
 - [Markdown 方言和输入示例](guides/markdown.md)
 - [定制主题、类名与布局尺寸](guides/theming.md)
 

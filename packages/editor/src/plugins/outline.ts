@@ -34,7 +34,7 @@ const styles = `
 .jot-outline__row[aria-expanded="false"]:dir(rtl) .jot-outline__chevron { transform: rotate(90deg); }
 .jot-outline__row:hover, .jot-outline__row[aria-current] { background: var(--jot-outline-highlight, color-mix(in srgb, currentColor 9%, transparent)); }
 .jot-outline__row[aria-current] { color: var(--jot-outline-accent, var(--jot-link-color, inherit)); font-weight: 600; }
-.jot-outline__row:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+.jot-outline:focus-visible, .jot-outline__row:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
 .jot-outline__status { padding: .4em .6em; }`;
 
 function headingLabel(node: RenderNode, source: string): string {
@@ -62,6 +62,7 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
   const nav = document.createElement("nav");
   nav.id = "jot-outline-" + ++nextOutlineId;
   nav.className = "jot-outline";
+  nav.tabIndex = -1;
   nav.setAttribute("aria-label", options.label ?? "文档大纲");
   nav.style.setProperty("--jot-outline-row-height", rowHeight + "px");
   const style = document.createElement("style");
@@ -117,8 +118,20 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
     for (const node of page.nodes) markCurrent(buttons.get(node.id)!, node);
   }
 
+  function visibleTitle(): HTMLButtonElement | undefined {
+    if (!page) return undefined;
+    const start = Math.max(0, Math.floor(nav.scrollTop / rowHeight) - page.from);
+    const end = Math.max(start, Math.ceil((nav.scrollTop + nav.clientHeight) / rowHeight) - page.from);
+    const visible = page.nodes.slice(start, end).map(node => buttons.get(node.id)!);
+    const focused = (nav.getRootNode() as Document | ShadowRoot).activeElement;
+    return visible.find(button => button === focused) ?? visible.find(button => button.hasAttribute("aria-current"))
+      ?? visible.find(button => button.tabIndex === 0) ?? visible[0];
+  }
+
   function draw(): void {
     if (!page) return;
+    const root = nav.getRootNode() as Document | ShadowRoot;
+    const hadFocus = root.activeElement === nav || rows.contains(root.activeElement);
     const { from, nodes, total } = page;
     // While parsing, only the first confirmed page is navigable.
     track.style.height = (page.complete ? total : from + nodes.length) * rowHeight + "px";
@@ -174,6 +187,9 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
     status.hidden = total > 0;
     if (!total) status.textContent = page.complete ? "暂无标题" : "正在读取大纲…";
     nav.setAttribute("aria-busy", String(!page.complete));
+    if (hadFocus && !rows.contains(root.activeElement)) {
+      (focusIndex === undefined ? visibleTitle() ?? nav : nav).focus({ preventScroll: true });
+    }
   }
 
   function schedule(): void {
@@ -385,13 +401,22 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
   const modeObserver = new MutationObserver(() => { setActive(currentOffset()); schedule(); });
   modeObserver.observe(editor.inputPane, { attributes: true, attributeFilter: ["hidden"] });
   nav.addEventListener("scroll", () => { void refresh(); }, { passive: true, signal });
+  nav.addEventListener("focusout", event => {
+    if (event.relatedTarget && !nav.contains(event.relatedTarget as Node)) focusIndex = undefined;
+  }, { signal });
   const resize = new ResizeObserver(schedule);
   resize.observe(nav);
   nav.setAttribute("aria-busy", "true");
+  const unregisterFocus = editor.registerFocusTarget("focus.outline", wrapper, () => {
+    if (!nav.getClientRects().length) return undefined;
+    setActive(currentOffset());
+    return visibleTitle() ?? nav;
+  });
   schedule();
   function dispose(): void {
     if (disposed) return;
     disposed = true;
+    unregisterFocus();
     unsubscribe();
     listeners.abort();
     modeObserver.disconnect();

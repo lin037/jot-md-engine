@@ -64,7 +64,9 @@ export const MARKDOWN_EDITOR_CSS = `
 .jot-editor-toolbar__button[aria-expanded="true"] {
   background: color-mix(in srgb, currentColor 8%, transparent);
 }
-.jot-editor-toolbar :focus-visible { outline: 2px solid var(--jot-toolbar-accent, var(--jot-link-color, currentColor)); outline-offset: -2px; }
+.jot-editor-toolbar :focus-visible, .jot-markdown-editor__surface:focus-visible {
+  outline: 2px solid var(--jot-toolbar-accent, var(--jot-link-color, currentColor)); outline-offset: -2px;
+}
 .jot-editor-toolbar__status {
   position: absolute;
   z-index: 1;

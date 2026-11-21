@@ -125,7 +125,9 @@ function showPanel(next: typeof panel): void {
   outlineButton.setAttribute("aria-expanded", String(next === "outline"));
   if (next === "outline") {
     void import("../../../packages/editor/src/plugins/outline.js").then(({ mountOutline }) => {
-      if (panel === "outline" && !outline) outline = mountOutline(outlinePanel, editor);
+      if (panel !== "outline" || outline) return;
+      outline = mountOutline(outlinePanel, editor);
+      if (document.activeElement === outlinePanel) editor.executeCommand("focus.outline");
     }).catch(reportError);
   } else {
     outline?.dispose();
@@ -141,6 +143,11 @@ function showPanel(next: typeof panel): void {
   if (wasHidden !== inspector.hidden) void editor.invalidateLayout().catch(reportError);
 }
 
+editor.registerFocusTarget("focus.outline", root.closest<HTMLElement>(".app")!, () => {
+  if (panel === "outline" && outline) return undefined;
+  showPanel("outline");
+  return outlinePanel;
+});
 outlineButton.addEventListener("click", () => showPanel(panel === "outline" ? undefined : "outline"));
 styleButton.addEventListener("click", () => {
   showPanel(panel === "style" ? undefined : "style");

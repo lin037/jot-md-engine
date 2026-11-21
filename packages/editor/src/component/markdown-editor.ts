@@ -102,6 +102,7 @@ export class MarkdownEditor {
   readonly #commandUI: ReturnType<typeof mountEditorCommandUI>;
   readonly #plugins: EditorPluginRegistry;
   readonly #commandActions = new Map<string, () => boolean>();
+  readonly #focusTargets = new Set<{ command: string; target: () => HTMLElement | undefined }>();
   #mode: MarkdownEditorMode;
   #surfaceMode: EditorSurfaceMode;
   #opened = false;
@@ -113,11 +114,21 @@ export class MarkdownEditor {
     if (!this.#disposed && this.#opened) void this.invalidateLayout().catch((error) => this.#onError?.(error));
   };
   #modeTail: Promise<void> = Promise.resolve();
-  readonly #onRootKeyDown = (event: KeyboardEvent): void => {
-    if (!this.inputPane.hidden || event.isComposing || !this.#opened) return;
+  readonly #onShortcutKeyDown = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || !this.#opened || this.#disposed) return;
+    // CodeMirror already resolves the bindings in its own input.
+    if (event.target === this.input.view.contentDOM) return;
     const mac = /Mac|iPhone|iPad/u.test(this.#root.ownerDocument.defaultView?.navigator.platform ?? "");
     const binding = this.commands.shortcutForEvent(event, mac);
     if (binding === undefined) return;
+    if (binding.command.startsWith("focus.")) {
+      if (this.executeCommand(binding.command)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
+    }
+    if (event.currentTarget !== this.#root || !this.inputPane.hidden) return;
     event.preventDefault();
     void this.#executeVisibleCommand(binding.command).catch((error) => this.#onError?.(error));
   };
@@ -170,6 +181,7 @@ export class MarkdownEditor {
     this.inputPane.className = "jot-markdown-editor__input";
     this.surfacePane = options.root.ownerDocument.createElement("div");
     this.surfacePane.className = "jot-markdown-editor__surface";
+    this.surfacePane.tabIndex = 0;
     options.root.replaceChildren(this.inputPane, this.surfacePane);
 
     this.#unsubscribeEvents = this.session.subscribe((effect) => {
@@ -302,7 +314,7 @@ export class MarkdownEditor {
       focusEditor: () => this.focus(),
       ...(options.openShortcutSettings === undefined ? {} : { openShortcutSettings: options.openShortcutSettings }),
     });
-    this.#root.addEventListener("keydown", this.#onRootKeyDown);
+    this.#root.addEventListener("keydown", this.#onShortcutKeyDown);
     try { this.#plugins.activate(this); } catch (error) { this.dispose(); throw error; }
   }
 
@@ -482,6 +494,26 @@ export class MarkdownEditor {
     };
   }
 
+  /** Associate a focus command with a component and enable focus shortcuts in that component. */
+  registerFocusTarget(command: string, scope: HTMLElement, target: () => HTMLElement | undefined = () => scope): () => void {
+    this.#assertLive();
+    if (!command.startsWith("focus.") || command === "focus.editor") throw new Error(`invalid focus target command: ${command}`);
+    const entry = { command, target };
+    this.#focusTargets.add(entry);
+    const keydown = (event: KeyboardEvent) => this.#onShortcutKeyDown(event);
+    // An application container lets its editor and dialogs handle their own events first.
+    const capture = !scope.contains(this.#root);
+    if (scope !== this.#root) scope.addEventListener("keydown", keydown, capture);
+    const lifetime = this.disposeSignal;
+    const unregister = () => {
+      if (!this.#focusTargets.delete(entry)) return;
+      scope.removeEventListener("keydown", keydown, capture);
+      lifetime.removeEventListener("abort", unregister);
+    };
+    lifetime.addEventListener("abort", unregister, { once: true });
+    return unregister;
+  }
+
   async openSearch(options: { readonly replace?: boolean } = {}): Promise<boolean> {
     this.#assertOpened();
     if (this.inputPane.hidden) await this.setMode("live-preview");
@@ -558,7 +590,7 @@ export class MarkdownEditor {
 
   focus(): void {
     this.#assertOpened();
-    if (this.inputPane.hidden) this.#root.focus();
+    if (this.inputPane.hidden) this.surfacePane.focus({ preventScroll: true });
     else this.input.focus();
   }
 
@@ -571,7 +603,7 @@ export class MarkdownEditor {
     this.#root.ownerDocument.fonts?.removeEventListener("loadingdone", this.#onFontsLoaded);
     this.#root.removeEventListener("jot-image-metadata", this.#onFontsLoaded);
     this.#root.removeEventListener("jot-math-rendered", this.#onFontsLoaded);
-    this.#root.removeEventListener("keydown", this.#onRootKeyDown);
+    this.#root.removeEventListener("keydown", this.#onShortcutKeyDown);
     this.#commandUI.dispose();
     this.headingFolds.dispose();
     this.livePreview.dispose();
@@ -601,6 +633,17 @@ export class MarkdownEditor {
   }
 
   #commandAction(action: string): boolean {
+    if (action.startsWith("focus.")) {
+      if (!this.#opened || this.#disposed || this.input.view.composing) return false;
+      if (action === "focus.editor") { this.focus(); return true; }
+      for (const entry of this.#focusTargets) {
+        if (entry.command !== action) continue;
+        const target = entry.target();
+        if (target === undefined) continue;
+        target.focus({ preventScroll: true });
+        if ((target.getRootNode() as Document | ShadowRoot).activeElement === target) return true;
+      }
+    }
     const handler = this.#commandActions.get(action);
     if (handler !== undefined) return handler();
     if (action === "heading-fold.toggle") {

@@ -35,8 +35,33 @@ try {
   assert.deepEqual(oversizedChunks.filter(file => initialScripts.includes(file)), [],
     "the default article must not fetch oversized JavaScript chunks");
   assert(!initialScripts.some(file => /^outline-/.test(file)), "outline is loaded on demand");
-  await client.evaluate("document.querySelector('#open-outline').click()");
+  await client.evaluate(`(() => {
+    const trigger = document.querySelector('#open-shortcuts');
+    trigger.focus();
+    trigger.click();
+  })()`);
+  await wait(`!!document.querySelector('#shortcuts input[name="focus.outline"]')`);
+  await client.evaluate(`(() => {
+    const form = document.querySelector('#shortcuts form');
+    form.elements.namedItem('focus.outline').value = 'F7';
+    form.elements.namedItem('focus.toolbar').value = 'F8';
+    form.elements.namedItem('focus.editor').value = 'F9';
+    form.requestSubmit();
+    document.querySelector('#shortcut-dialog').close();
+  })()`);
+  await wait(`document.activeElement?.id === 'open-shortcuts'`);
+  const press = async (key, windowsVirtualKeyCode) => {
+    for (const type of ["keyDown", "keyUp"]) {
+      await client.command("Input.dispatchKeyEvent", { type, key, code: key, windowsVirtualKeyCode });
+    }
+  };
+  await press("F7", 118);
   await wait("document.querySelector('#outline-panel .jot-outline__row')?.textContent === '排版手记'");
+  await wait(`document.activeElement?.matches('#outline-panel [role="treeitem"]')`);
+  await press("F8", 119);
+  await wait(`document.activeElement?.matches('.jot-editor-toolbar__button')`);
+  await press("F9", 120);
+  await wait(`document.activeElement?.matches('#editor-root .cm-content')`);
   await client.evaluate("document.querySelector('#outline-panel').style.setProperty('--jot-outline-max-height', '48px')");
   for (const width of [1200, 390]) {
     await client.command("Emulation.setDeviceMetricsOverride", { width, height: 800, deviceScaleFactor: 1, mobile: false });

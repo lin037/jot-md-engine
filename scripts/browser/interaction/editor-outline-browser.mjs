@@ -27,6 +27,11 @@ try {
   await client.command("Runtime.enable");
   const wait = expression => waitForEvaluation(client, expression, 20_000);
   const run = (fn, ...args) => client.evaluate(`(${fn})(${args.map(arg => JSON.stringify(arg)).join(",")})`);
+  const press = async (key, windowsVirtualKeyCode) => {
+    for (const type of ["keyDown", "keyUp"]) {
+      await client.command("Input.dispatchKeyEvent", { type, key, code: key, windowsVirtualKeyCode });
+    }
+  };
   await wait("document.readyState === 'complete' && document.title === 'Jot native component integration fixture'");
   await run(async root => {
     const { MarkdownEditor, createHeadingFoldPlugin } = await import(root + "/packages/editor/src/index.ts");
@@ -86,6 +91,41 @@ try {
     const css = getComputedStyle(icon);
     return [icon.getAttribute("aria-hidden"), css.strokeLinecap, css.transform];
   })), [["true", "round", "none"], null, ["true", "round", "none"], null]);
+  const caret = await run(() => {
+    f.editor.commands.configureShortcuts({ "focus.editor": "F8", "focus.outline": "F9" });
+    f.editor.input.setSelection(3, 5);
+    f.editor.focus();
+    const view = f.editor.input.view;
+    return [view.state.selection.main.anchor, view.state.selection.main.head, view.scrollDOM.scrollTop];
+  });
+  await press("F9", 120);
+  await wait("document.activeElement === f.buttons()[0]");
+  await press("ArrowDown", 40);
+  await wait("document.activeElement === f.buttons()[1]");
+  await press("F8", 119);
+  await wait("f.editor.input.view.hasFocus");
+  assert.deepEqual(await run(() => {
+    const view = f.editor.input.view;
+    return [view.state.selection.main.anchor, view.state.selection.main.head, view.scrollDOM.scrollTop];
+  }), caret, "focus navigation preserves selection and scroll position");
+  await run(() => {
+    f.properties = document.body.appendChild(document.createElement("aside"));
+    f.properties.tabIndex = -1;
+    f.editor.commands.register({ id: "focus.properties", title: "聚焦属性面板", requiresInput: false,
+      run: () => ({ action: "focus.properties", userEvent: "command.focus.properties" }) });
+    f.releaseProperties = f.editor.registerFocusTarget("focus.properties", f.properties);
+    f.editor.commands.configureShortcuts({ "focus.properties": "F10" });
+  });
+  await press("F10", 121);
+  await wait("document.activeElement === f.properties");
+  await press("F8", 119);
+  await wait("f.editor.input.view.hasFocus");
+  assert.equal(await run(() => {
+    f.releaseProperties();
+    f.properties.remove();
+    return f.editor.executeCommand("focus.properties");
+  }), false, "custom focus targets can be removed without losing their shortcut slot");
+  await run(() => f.editor.input.setSelection(0));
   await run(() => {
     f.buttons()[2].querySelector(".jot-outline__toggle").click();
     f.treeKey = (i, key) => {
@@ -132,6 +172,13 @@ try {
     if (["preview", "pretext", "split"].includes(mode)) {
       await wait(`Math.abs(f.editor.surface.captureScrollAnchor().sourceOffset - ${childOffset}) <= 4`);
     }
+    if (mode === "preview") {
+      await run(() => f.editor.focus());
+      await press("F9", 120);
+      await wait("f.buttons().includes(document.activeElement)");
+      await press("F8", 119);
+      await wait("document.activeElement === f.editor.surfacePane");
+    }
     assert.equal(await run(() => f.editor.mode), mode);
     assert.equal(await run(() => f.editor.value === f.source && f.editor.revision === 0), true);
   }
@@ -154,6 +201,11 @@ try {
   await wait("f.requests > f.editedRequests && f.nav().getAttribute('aria-busy') === 'false' && f.buttons().length === 3 && f.buttons()[2].getAttribute('aria-expanded') === 'false'");
   await run(() => f.editor.setValue("无标题的正文"));
   await wait("f.buttons().length === 0 && f.nav().textContent.includes('暂无标题')");
+  await run(() => f.editor.focus());
+  await press("F9", 120);
+  await wait("document.activeElement === f.nav()");
+  await press("F8", 119);
+  await wait("f.editor.input.view.hasFocus");
   // Hold one real Worker result while the editor confirms a newer revision.
   await run(() => {
     const original = f.editor.session.project.bind(f.editor.session);
@@ -304,6 +356,8 @@ try {
   assert(longTitles.directScrollbar);
   console.log("outline long titles", JSON.stringify(longTitles));
   await run(() => f.editor.setPluginEnabled("outline", false));
+  assert.equal(await run(() => f.editor.executeCommand("focus.outline")), false);
+  assert.equal(await run(() => f.editor.commands.shortcuts.find(key => key.command === "focus.outline")?.key), "F9");
   const disabledRequests = await run(() => f.requests);
   await run(async () => { f.editor.setReadOnly(false); f.editor.setValue("# 已关闭"); await f.editor.settled(); });
   assert.equal(await run(() => f.requests), disabledRequests);
@@ -316,6 +370,9 @@ try {
     f.mountOutline(f.other, f.editor);
   });
   await wait("f.labels()[0] === '已关闭' && f.other.querySelector('button')?.textContent === '已关闭'");
+  await run(() => f.other.querySelector("button").focus());
+  await press("F8", 119);
+  await wait("f.editor.input.view.hasFocus");
   await run(async root => {
     f.binding.dispose();
     const { MarkdownEditor } = await import(root + "/packages/editor/src/index.ts");

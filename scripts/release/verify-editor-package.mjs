@@ -108,8 +108,12 @@ void createToolbarPlugin(toolbar);
 const outlineOptions: OutlineOptions = { label: "Contents", rowHeight: 28 };
 const bindSidebar = (sidebar: HTMLElement, editor: MarkdownEditor) => mountOutline(sidebar, editor, outlineOptions).dispose;
 const outlinePlugin = (container: HTMLElement) => createOutlinePlugin({ ...outlineOptions, container, enabled: false });
+const setOutlineShortcut = (editor: MarkdownEditor) => editor.commands.configureShortcuts({ "focus.outline": "Mod-Shift-8" });
+const bindPanelFocus = (editor: MarkdownEditor, panel: HTMLElement) => editor.registerFocusTarget("focus.properties", panel);
 void bindSidebar;
 void outlinePlugin;
+void setOutlineShortcut;
+void bindPanelFocus;
 const runExternalButton = (editor: MarkdownEditor) =>
   editor.canEdit && editor.executeCommand("format.bold", undefined, { preserveViewport: true });
 void runExternalButton;

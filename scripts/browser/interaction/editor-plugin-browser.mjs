@@ -46,7 +46,10 @@ try {
  const toolbarButton = (id) => `document.querySelector('[data-jot-toolbar-command="${id}"]')`;
  const toolbarGeometry = `(()=>{const view=toolbarEditor.input.view;return{scroll:view.scrollDOM.scrollTop,top:view.scrollDOM.getBoundingClientRect().top,bar:document.querySelector('.jot-editor-toolbar').offsetHeight}})()`;
  const toolbarKey = async (key, windowsVirtualKeyCode) => {
-   for (const type of ['keyDown','keyUp']) await c.command('Input.dispatchKeyEvent',{type,key,code:key,windowsVirtualKeyCode});
+   for (const type of ['keyDown','keyUp']) {
+     await c.command('Input.dispatchKeyEvent', {type, key, code:key, windowsVirtualKeyCode,
+       ...(type === 'keyDown' && key === 'Enter' ? {text:'\r'} : {})});
+   }
  };
  const toolbarClick = async (target) => {
    const point = await c.evaluate(`(()=>{const r=(${target}).getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2}})()`);
@@ -56,6 +59,26 @@ try {
  };
  assert(await c.evaluate(`(()=>{const toolbar=document.querySelector('.jot-editor-toolbar').getBoundingClientRect(),input=toolbarEditor.inputPane.getBoundingClientRect(),surface=toolbarEditor.surfacePane.getBoundingClientRect();return toolbar.bottom<=input.top&&input.top===surface.top&&input.right===surface.left&&surface.right===toolbar.right})()`),'toolbar spans both split panes');
  await c.evaluate('document.querySelector("#integration").style.display="none"');
+ await c.evaluate(`toolbarEditor.commands.configureShortcuts({'focus.toolbar':'F4','focus.editor':'F6'});toolbarEditor.input.setSelection(1, 3);toolbarEditor.focus()`);
+ await toolbarKey('F4',115);
+ assert.equal(await c.evaluate(`document.activeElement===${toolbarButton('history.undo')}`),true,'a bound shortcut focuses the first enabled tool');
+ await toolbarKey('ArrowRight',39);
+ await toolbarKey('ArrowRight',39);
+ assert.equal(await c.evaluate(`document.activeElement===${toolbarButton('toolbar.open-heading')}`),true);
+ assert.equal(await c.evaluate(`document.querySelectorAll('.jot-editor-toolbar__button[tabindex="0"]').length`),1);
+ await toolbarKey('Enter',13);
+ await waitForEvaluation(c,`document.activeElement?.closest('.jot-editor-toolbar__picker--heading:popover-open') !== null`,5000);
+ await toolbarKey('F6',117);
+ await waitForEvaluation(c,`toolbarEditor.input.view.hasFocus && !document.querySelector('.jot-editor-toolbar__picker:popover-open')`,5000);
+ assert.deepEqual(await c.evaluate('toolbarEditor.input.view.state.selection.main.toJSON()'),{anchor:1,head:3});
+ assert.equal(await c.evaluate('toolbarEditor.revision'),0);
+ await toolbarKey('F4',115);
+ assert.equal(await c.evaluate(`document.activeElement===${toolbarButton('toolbar.open-heading')}`),true,'the toolbar remembers the selected tool');
+ await c.evaluate('toolbarEditor.openSearch()');
+ await waitForEvaluation(c,`document.activeElement?.matches('.cm-search input[name="search"]')`,5000);
+ await toolbarKey('F6',117);
+ await waitForEvaluation(c,`toolbarEditor.input.view.hasFocus`,5000);
+ await c.evaluate('toolbarEditor.input.closeSearch()');
  const beforeStatus = await c.evaluate(toolbarGeometry);
  await toolbarClick(toolbarButton('history.undo'));
  await c.evaluate('toolbarEditor.settled()');
@@ -138,6 +161,11 @@ try {
  await c.evaluate(`${toolbarButton('history.undo')}.click();toolbarEditor.settled()`);
  await c.evaluate(`toolbarEditor.setReadOnly(true);${toolbarButton('history.redo')}.click();toolbarEditor.settled()`);
  assert(await c.evaluate(`${toolbarButton('history.redo')}.disabled && !${toolbarButton('search.open')}.disabled && toolbarEditor.value==='#### ready'`),'read-only toolbar blocks edits and retains search');
+ await c.evaluate('toolbarEditor.focus()');
+ await toolbarKey('F4',115);
+ assert.equal(await c.evaluate(`document.activeElement===${toolbarButton('search.open')}`),true,'focus skips disabled tools');
+ await toolbarKey('F6',117);
+ assert.equal(await c.evaluate(`toolbarEditor.input.view.hasFocus && toolbarEditor.input.view.state.readOnly`),true);
  await c.evaluate(`toolbarEditor.setReadOnly(false);toolbarEditor.setMode('preview')`);
  assert(await c.evaluate(`${toolbarButton('format.bold')}.disabled`),'preview toolbar disables formatting');
  await c.evaluate(`${toolbarButton('search.open')}.click()`);
