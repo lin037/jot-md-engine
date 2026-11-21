@@ -78,6 +78,34 @@ try {
   }), 0, "opening an external outline does not remeasure the editor");
   await wait("f.buttons().length === 4");
   assert.deepEqual(await run(() => f.labels()), ["甲😀", "同名", "同名", "无标题"]);
+  assert.deepEqual(await run(() => f.buttons().map(b => [b.getAttribute("aria-level"), b.getAttribute("aria-expanded")])),
+    [["1", "true"], ["2", null], ["2", "true"], ["3", null]]);
+  await run(() => {
+    f.buttons()[2].querySelector(".jot-outline__toggle").click();
+    f.treeKey = (i, key) => {
+      const row = f.buttons()[i];
+      row.focus();
+      row.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    };
+  });
+  await wait("f.buttons().length === 3");
+  await run(() => f.treeKey(0, "ArrowLeft"));
+  await wait("f.labels().join() === '甲😀'");
+  assert.deepEqual(await run(() => [f.editor.revision, f.editor.input.view.state.selection.main.head, f.editor.headingFolds.ranges.length]), [0, 0, 0]);
+  await run(() => {
+    f.mirror = document.body.appendChild(document.createElement("aside"));
+    f.mirrorBinding = f.mountOutline(f.mirror, f.editor, { scrollbar: "native" });
+  });
+  await wait("f.mirror.querySelectorAll('[role=treeitem]').length === 4 && f.buttons().length === 1");
+  assert.equal(await run(() => f.mirror.querySelector("[role=scrollbar]") === null), true);
+  await run(() => { f.mirrorBinding.dispose(); f.mirror.remove(); f.treeKey(0, "ArrowRight"); });
+  await wait("f.buttons().length === 3 && f.buttons()[2].getAttribute('aria-expanded') === 'false'");
+  await run(() => f.treeKey(0, "ArrowRight"));
+  await wait("document.activeElement === f.buttons()[1]");
+  await run(() => f.treeKey(1, "ArrowLeft"));
+  await wait("document.activeElement === f.buttons()[0]");
+  await run(() => f.treeKey(2, "ArrowRight"));
+  await wait("f.buttons().length === 4");
   const childOffset = await run(() => f.source.indexOf("### ["));
   for (const mode of ["source", "live-preview", "split", "preview", "pretext"]) {
     await run(async mode => {
@@ -110,6 +138,13 @@ try {
   await wait(`f.editor.input.view.state.selection.main.head === ${childOffset + 3}`);
   await run(() => f.editor.executeCommand("history.undo"));
   await wait("f.editor.confirmedValue === f.source");
+  await run(() => f.treeKey(2, "ArrowLeft"));
+  await wait("f.buttons().length === 3");
+  await run(() => {
+    f.editedRequests = f.requests;
+    f.editor.input.view.dispatch({ changes: { from: f.source.indexOf("正文") + 1, insert: "改" }, userEvent: "input.type" });
+  });
+  await wait("f.requests > f.editedRequests && f.nav().getAttribute('aria-busy') === 'false' && f.buttons().length === 3 && f.buttons()[2].getAttribute('aria-expanded') === 'false'");
   await run(() => f.editor.setValue("无标题的正文"));
   await wait("f.buttons().length === 0 && f.nav().textContent.includes('暂无标题')");
   // Hold one real Worker result while the editor confirms a newer revision.
@@ -129,6 +164,49 @@ try {
   await wait("f.labels().join() === '新标题'");
   await run(() => f.editor.setValue(Array.from({ length: 3000 }, (_, i) => "## 标题 " + i + "\n段落 " + i).join("\n")));
   await wait("f.totals.at(-1) === 3000 && f.labels()[0] === '标题 0'");
+  await wait("getComputedStyle(f.host.querySelector('[role=scrollbar]')).display !== 'none'");
+  // Keep the first window in flight. A direct jump must render the newer target
+  // before the older result returns, even when the user reverses direction.
+  await run(() => {
+    const project = f.editor.session.project.bind(f.editor.session);
+    f.editor.session.project = async (...args) => {
+      if (!args[0].some(s => s.axis === "heading-outline")) return project(...args);
+      f.editor.session.project = project;
+      const old = await project(...args);
+      await new Promise(resolve => { f.releaseScroll = resolve; });
+      return old;
+    };
+    f.nav().scrollTop = 400 * 32;
+  });
+  await wait("typeof f.releaseScroll === 'function'");
+  const point = await run(() => {
+    const bar = f.host.querySelector("[role=scrollbar]");
+    const rect = bar.getBoundingClientRect(), thumb = bar.firstElementChild.getBoundingClientRect();
+    const css = getComputedStyle(bar), inset = parseFloat(css.borderTopWidth) + parseFloat(css.paddingTop);
+    const travel = rect.height - 2 * inset - thumb.height;
+    const x = Math.round(rect.left + rect.width / 2), y = Math.round(rect.top + inset + thumb.height / 2 + .63 * travel);
+    if (document.elementFromPoint(x, y) !== bar || bar.getAttribute("aria-controls") !== f.nav().id) throw new Error("outline track is obstructed or unbound");
+    bar.addEventListener("pointerdown", () => { f.pressedTop = f.nav().scrollTop; }, { once: true });
+    const expected = (y - rect.top - inset - thumb.height / 2) / travel * (f.nav().scrollHeight - f.nav().clientHeight);
+    return { x, y, expected };
+  });
+  const mouse = (type, x, y, buttons) => client.command("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons, clickCount: 1 });
+  await mouse("mousePressed", point.x, point.y, 1);
+  assert(Math.abs(await run(() => f.pressedTop) - point.expected) <= 2, "track click jumps proportionally on pointerdown");
+  await mouse("mouseReleased", point.x, point.y, 0);
+  await wait("f.buttons().some(b => Number(b.dataset.index) === Math.floor(f.nav().scrollTop / 32))");
+  await run(() => f.releaseScroll());
+  const thumb = await run(() => {
+    const bar = f.host.querySelector("[role=scrollbar]");
+    const rect = bar.firstElementChild.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, bottom: bar.getBoundingClientRect().bottom };
+  });
+  await mouse("mousePressed", thumb.x, thumb.y, 1);
+  await mouse("mouseMoved", thumb.x, thumb.bottom, 1);
+  await mouse("mouseReleased", thumb.x, thumb.bottom, 0);
+  await wait("f.nav().scrollTop === f.nav().scrollHeight - f.nav().clientHeight && f.labels().includes('标题 2999')");
+  await run(() => f.host.querySelector("[role=scrollbar]").dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+  await wait("f.nav().scrollTop === 0 && f.labels()[0] === '标题 0'");
   await run(() => {
     const first = f.buttons()[0];
     first.focus();
@@ -167,6 +245,57 @@ try {
     samples.sort((a, b) => a - b);
     return { samples: samples.length, warmWindowP50ms: +samples[15].toFixed(2), warmWindowP95ms: +samples[29].toFixed(2) };
   });
+  // Long labels exercise both the Worker's range projection and the actual sidebar DOM.
+  // Keep full-document analysis outside the jump timings.
+  await run(async () => {
+    f.editor.setReadOnly(false);
+    await f.editor.setMode("source");
+    const unit = "排版😀";
+    const ordinary = unit.repeat(512);
+    const source = Array.from({ length: 1024 }, (_, i) =>
+      "# " + i + " " + (i === 512 ? unit.repeat(16_384) : ordinary)).join("\n");
+    f.longLength = source.length;
+    const stop = f.editor.subscribe(effect => {
+      if (effect.analysis?.state === "complete" && f.editor.confirmedValue.length === f.longLength) {
+        f.longAnalysisMs = Math.round(performance.now() - f.longStart);
+        stop();
+      }
+    });
+    f.longStart = performance.now();
+    f.nav().scrollTop = 0;
+    f.editor.setValue(source);
+  });
+  await wait("f.totals.at(-1) === 1024 && f.labels()[0]?.startsWith('0 ') && f.nav().getAttribute('aria-busy') === 'false'");
+  const longTitles = await run(async () => {
+    const setupMs = Math.round(performance.now() - f.longStart);
+    const samples = [];
+    let maxRows = 0, maxLabel = 0;
+    for (const index of [512, 80, 970, 235, 601, 43, 872, 180, 693, 325, 988, 552, 134]) {
+      const start = performance.now();
+      f.nav().scrollTop = index * 32;
+      await new Promise((resolve, reject) => {
+        function waitForRow() {
+          if (f.buttons().some(b => b.textContent.startsWith(index + " "))) requestAnimationFrame(resolve);
+          else if (performance.now() - start > 5000) reject(new Error("outline did not show heading " + index));
+          else requestAnimationFrame(waitForRow);
+        }
+        waitForRow();
+      });
+      samples.push(performance.now() - start);
+      maxRows = Math.max(maxRows, f.buttons().length);
+      for (const label of f.labels()) {
+        maxLabel = Math.max(maxLabel, label.length);
+        if (!label.endsWith("…") || !label.isWellFormed()) throw new Error("invalid outline abbreviation");
+      }
+    }
+    samples.sort((a, b) => a - b);
+    return { headings: 1024, sourceUtf16: f.longLength, longestTitleUtf16: 65_540, setupMs, analysisMs: f.longAnalysisMs, maxRows, maxLabel,
+      jumps: samples.length, jumpP50ms: Math.round(samples[6]), jumpP95ms: Math.round(samples[12]),
+      directScrollbar: f.nav().classList.contains("jot-direct-scrollbar-host") };
+  });
+  assert(longTitles.maxRows <= 48 && longTitles.maxLabel <= 161, JSON.stringify(longTitles));
+  assert(longTitles.directScrollbar);
+  console.log("outline long titles", JSON.stringify(longTitles));
   await run(() => f.editor.setPluginEnabled("outline", false));
   const disabledRequests = await run(() => f.requests);
   await run(async () => { f.editor.setReadOnly(false); f.editor.setValue("# 已关闭"); await f.editor.settled(); });
@@ -200,8 +329,12 @@ try {
     editorRoot.style.cssText = "height:240px;width:650px";
     const next = f.editor2 = new MarkdownEditor({ root: editorRoot, mode: "source",
       session: { endpoint, documentId: "second", generation: 1,
-        source: Array.from({ length: 3000 }, (_, i) => "# 另一个文档 " + i + "\n段落").join("\n"),
+        source: Array.from({ length: 3000 }, (_, i) => (i === 0 || i === 2999 ? "# " : "## ") + "另一个文档 " + i + "\n段落").join("\n"),
         syntaxProfile: { id: "default", version: 1, enabledExtensions: [] } } });
+    next.subscribe(effect => {
+      const outline = effect.renderPatch?.operations.find(op => op.axis === "heading-outline");
+      if (outline) f.secondBatch = { visible: outline.totalChildren, received: outline.inserted.length };
+    });
     f.mountOutline(f.host, next);
     await next.open();
   }, root);
@@ -209,6 +342,10 @@ try {
   assert.equal(await run(() => f.other.querySelector("button").textContent), "已关闭");
   await run(() => f.releaseAnalysis());
   await wait("f.nav().getAttribute('aria-busy') === 'false' && f.nav().scrollHeight === 3000 * 32");
+  await run(() => f.buttons()[0].querySelector(".jot-outline__toggle").click());
+  await wait("f.labels().join(',') === '另一个文档 0,另一个文档 2999'");
+  assert.deepEqual(await run(() => f.secondBatch), { visible: 2, received: 2 });
+  assert.equal(await run(() => f.editor2.revision), 0);
   await run(() => { f.editor.dispose(); f.worker.terminate(); });
   assert.equal(await run(() => !!f.nav() && !f.other.firstChild), true);
   await run(() => { f.editor2.dispose(); f.worker2.terminate(); });

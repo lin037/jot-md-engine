@@ -190,7 +190,10 @@ pub(crate) struct HeadingIndexEntry {
     pub(crate) id: NodeId,
     pub(crate) block: usize,
     pub(crate) level: u8,
-    next: Option<usize>,
+    pub(crate) parent: Option<usize>,
+    pub(crate) depth: u8,
+    /// Outline slot of the next heading at this level or above.
+    pub(crate) next: Option<usize>,
 }
 
 impl SyntaxSnapshot {
@@ -288,7 +291,15 @@ impl SyntaxSnapshot {
     pub(crate) fn heading_section(&self, id: NodeId) -> Option<(usize, u8, Option<usize>)> {
         let index = self.heading_index();
         let entry = index.entries.get(*index.by_id.get(&id)?)?;
-        Some((entry.block, entry.level, entry.next))
+        Some((
+            entry.block,
+            entry.level,
+            entry.next.map(|next| index.entries[next].block),
+        ))
+    }
+
+    pub(crate) fn heading_slot(&self, id: NodeId) -> Option<usize> {
+        self.heading_index().by_id.get(&id).copied()
     }
 
     pub(crate) fn headings(&self) -> &[HeadingIndexEntry] {
@@ -313,16 +324,19 @@ impl SyntaxSnapshot {
                     .is_some_and(|previous| entries[*previous].level >= *level)
                 {
                     let previous = open.pop().expect("checked stack");
-                    entries[previous].next = Some(block);
+                    entries[previous].next = Some(entries.len());
                 }
-                by_id.insert(root_id, entries.len());
-                open.push(entries.len());
+                let slot = entries.len();
+                by_id.insert(root_id, slot);
                 entries.push(HeadingIndexEntry {
                     id: root_id,
                     block,
                     level: *level,
+                    parent: open.last().copied(),
+                    depth: (open.len() + 1) as u8, // ATX headings have at most six levels.
                     next: None,
                 });
+                open.push(slot);
             }
             Arc::new(HeadingIndex { entries, by_id })
         })

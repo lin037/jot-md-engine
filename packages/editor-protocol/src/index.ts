@@ -193,6 +193,8 @@ export interface ProjectionSlice {
   readonly window: ProjectionWindow;
   /** 内嵌后代层级；更深层子节点需要单独请求。 */
   readonly maxDepth: number;
+  /** On heading-outline, omit descendants of these stable heading IDs from the virtual axis. */
+  readonly collapsedHeadings?: readonly string[];
 }
 
 export type ProjectionWindow =

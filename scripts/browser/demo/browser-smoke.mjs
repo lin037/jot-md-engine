@@ -37,6 +37,20 @@ try {
   assert(!initialScripts.some(file => /^outline-/.test(file)), "outline is loaded on demand");
   await client.evaluate("document.querySelector('#open-outline').click()");
   await wait("document.querySelector('#outline-panel .jot-outline__row')?.textContent === '排版手记'");
+  await client.evaluate("document.querySelector('#outline-panel').style.setProperty('--jot-outline-max-height', '48px')");
+  for (const width of [1200, 390]) {
+    await client.command("Emulation.setDeviceMetricsOverride", { width, height: 800, deviceScaleFactor: 1, mobile: false });
+    await wait(`(() => {
+      const bar = document.querySelector('#outline-panel [role=scrollbar]');
+      const reference = document.querySelector('body > .jot-direct-scrollbar');
+      if (!bar || !reference || getComputedStyle(bar).display === 'none') return false;
+      const r = bar.getBoundingClientRect();
+      return bar.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2))
+        && getComputedStyle(bar).borderRadius === getComputedStyle(reference).borderRadius
+        && getComputedStyle(bar).backgroundColor === getComputedStyle(reference).backgroundColor;
+    })()`);
+  }
+  await client.evaluate("document.querySelector('#outline-panel').style.removeProperty('--jot-outline-max-height')");
   await client.evaluate("document.querySelector('#close-inspector').click()");
   await wait("!document.querySelector('.jot-outline')");
   for (const width of [1440, 390]) {

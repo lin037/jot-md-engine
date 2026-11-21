@@ -1117,6 +1117,7 @@ mod tests {
                 to_exclusive: 1,
             },
             max_depth: 0,
+            collapsed_headings: Vec::new(),
         };
         let RenderOperation::ReplaceChildren { mut inserted, .. } =
             heading_section_operation(text, syntax, &slice, &ProjectionMode::Hybrid, complete);
@@ -1146,6 +1147,7 @@ mod tests {
                 to_exclusive: 7,
             },
             max_depth: 4,
+            collapsed_headings: Vec::new(),
         };
         let RenderOperation::ReplaceChildren {
             total_children,
@@ -1228,6 +1230,7 @@ mod tests {
                 to_exclusive: 10_003,
             },
             max_depth: 1,
+            collapsed_headings: Vec::new(),
         };
         let RenderOperation::ReplaceChildren {
             from,
@@ -1269,6 +1272,7 @@ mod tests {
                 to_exclusive: 3,
             },
             max_depth: 4,
+            collapsed_headings: Vec::new(),
         };
         let RenderOperation::ReplaceChildren { inserted, .. } = quote_line_operation(
             &text,
@@ -1360,6 +1364,7 @@ mod tests {
                     to_exclusive: requested_to,
                 },
                 max_depth: 0,
+                collapsed_headings: Vec::new(),
             };
             let RenderOperation::ReplaceChildren {
                 from,
@@ -1522,6 +1527,7 @@ mod tests {
                 axis: ProjectionAxis::SyntaxChildren,
                 window,
                 max_depth: 1,
+                collapsed_headings: Vec::new(),
             };
             let expected = window_operation(&slice, eager.clone());
             RENDERED_NODES.with(|count| count.set(0));

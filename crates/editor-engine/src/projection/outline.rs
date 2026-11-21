@@ -1,8 +1,69 @@
 use super::{
     NodeKind, ProjectionMode, ProjectionSlice, ProjectionWindow, RenderContent, RenderNode,
     RenderOperation, SyntaxNode, SyntaxSnapshot, around, boolean, clamp, empty_operation, number,
-    numbers, render_mode, replace_children, u32_len,
+    numbers, parse_node_id, render_mode, replace_children, u32_len,
 };
+
+/// A jump crosses an entire collapsed subtree, regardless of its number of headings.
+/// Store only outermost folds, with cumulative offsets for both rank lookups.
+#[derive(Default)]
+struct HiddenHeadings {
+    jumps: Vec<FoldJump>,
+    count: usize,
+}
+
+struct FoldJump {
+    first_hidden: usize,
+    visible_after: usize,
+    total_hidden: usize,
+}
+
+impl HiddenHeadings {
+    fn new(syntax: &SyntaxSnapshot, collapsed: &[String]) -> Self {
+        let headings = syntax.headings();
+        let mut slots: Vec<_> = collapsed
+            .iter()
+            .filter_map(|id| syntax.heading_slot(parse_node_id(id)?))
+            .collect();
+        slots.sort_unstable();
+        let mut result = Self::default();
+        let mut previous_end = 0;
+        for slot in slots {
+            let from = slot + 1;
+            let end = headings[slot].next.unwrap_or(headings.len());
+            if slot < previous_end || from == end {
+                continue;
+            }
+            let visible = from - result.count;
+            result.count += end - from;
+            result.jumps.push(FoldJump {
+                first_hidden: from,
+                visible_after: visible,
+                total_hidden: result.count,
+            });
+            previous_end = end;
+        }
+        result
+    }
+
+    fn physical(&self, visible: usize) -> usize {
+        let end = self
+            .jumps
+            .partition_point(|jump| jump.visible_after <= visible);
+        visible + self.jumps[..end].last().map_or(0, |jump| jump.total_hidden)
+    }
+
+    fn visible(&self, physical: usize) -> usize {
+        let end = self
+            .jumps
+            .partition_point(|jump| jump.first_hidden <= physical);
+        self.jumps[..end].last().map_or(physical, |jump| {
+            physical
+                .saturating_sub(jump.total_hidden)
+                .max(jump.visible_after - 1)
+        })
+    }
+}
 
 pub(super) fn operation(
     syntax: &SyntaxSnapshot,
@@ -14,7 +75,8 @@ pub(super) fn operation(
         return empty_operation(slice);
     }
     let headings = syntax.headings();
-    let total = u32_len(headings.len());
+    let hidden = HiddenHeadings::new(syntax, &slice.collapsed_headings);
+    let total = u32_len(headings.len() - hidden.count);
     let (from, to) = match &slice.window {
         ProjectionWindow::Index { from, to_exclusive } => clamp(*from, *to_exclusive, total),
         ProjectionWindow::AroundRange {
@@ -27,18 +89,34 @@ pub(super) fn operation(
                     .node(item.id)
                     .is_some_and(|node| node.source_range.from <= range.from)
             });
-            around(end.saturating_sub(1), *before, *after, total)
+            around(
+                hidden.visible(end.saturating_sub(1)),
+                *before,
+                *after,
+                total,
+            )
         }
     };
     let inserted = (from as usize..to as usize)
-        .map(|index| {
+        .map(|visible| {
+            let index = hidden.physical(visible);
             let item = &headings[index];
             let heading = syntax.node(item.id).expect("indexed heading");
             let mut attrs = Vec::new();
             number(&mut attrs, "level", u32::from(item.level));
+            number(&mut attrs, "depth", u32::from(item.depth));
+            if let Some(parent) = item.parent {
+                number(&mut attrs, "parentIndex", u32_len(hidden.visible(parent)));
+            }
+            if headings
+                .get(index + 1)
+                .is_some_and(|next| next.level > item.level)
+            {
+                boolean(&mut attrs, "hasChildren", true);
+            }
             number(&mut attrs, "blockIndex", u32_len(item.block));
             if let Some(next) = headings
-                .get(index + 1)
+                .get(hidden.physical(visible + 1))
                 .and_then(|item| syntax.node(item.id))
             {
                 number(&mut attrs, "nextHeadingFrom", next.source_range.from);
@@ -116,6 +194,7 @@ mod tests {
                 axis: ProjectionAxis::HeadingOutline,
                 window,
                 max_depth: 0,
+                collapsed_headings: Vec::new(),
             }],
         }
     }
@@ -187,6 +266,69 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn folded_windows_skip_descendants_and_map_hidden_anchors_to_the_visible_parent() {
+        let text =
+            TextBuffer::from_source("# A\n### sub\n###### deep\n## sibling\n# B\n#### child\n# C");
+        let syntax = parse(&text, &CompiledSyntaxProfile::compile(Default::default())).unwrap();
+        let ids: Vec<_> = syntax
+            .headings()
+            .iter()
+            .map(|h| h.id.0.to_string())
+            .collect();
+        // Exhaust the fold combinations, including nested, empty and nonadjacent branches.
+        for mask in 0..(1 << ids.len()) {
+            let mut req = request(ProjectionWindow::Index {
+                from: 0,
+                to_exclusive: 2,
+            });
+            let slice = &mut req.slices[0];
+            let mut visible = Vec::new();
+            let mut hidden_under = None;
+            for (slot, heading) in syntax.headings().iter().enumerate() {
+                let collapsed = mask & (1 << slot) != 0;
+                if collapsed {
+                    slice.collapsed_headings.push(ids[slot].clone());
+                }
+                if hidden_under.is_some_and(|level| heading.level > level) {
+                    continue;
+                }
+                visible.push(slot);
+                hidden_under = collapsed.then_some(heading.level);
+            }
+            slice.collapsed_headings.push("deleted".into());
+            for from in 0..=visible.len() {
+                slice.window = ProjectionWindow::Index {
+                    from: from as u32,
+                    to_exclusive: from as u32 + 2,
+                };
+                let RenderOperation::ReplaceChildren {
+                    total_children,
+                    inserted,
+                    ..
+                } = operation(&syntax, syntax.root(), slice, &req.mode);
+                assert_eq!(total_children as usize, visible.len());
+                assert!(
+                    inserted
+                        .iter()
+                        .map(|node| &node.id)
+                        .eq(visible[from..].iter().take(2).map(|&slot| &ids[slot]))
+                );
+            }
+            for (slot, heading) in syntax.headings().iter().enumerate() {
+                slice.window = ProjectionWindow::AroundRange {
+                    range: syntax.node(heading.id).unwrap().source_range,
+                    before: 0,
+                    after: 0,
+                };
+                let RenderOperation::ReplaceChildren { inserted, .. } =
+                    operation(&syntax, syntax.root(), slice, &req.mode);
+                let previous = visible[visible.partition_point(|&at| at <= slot) - 1];
+                assert_eq!(inserted[0].id, ids[previous]);
+            }
+        }
     }
 
     #[test]
