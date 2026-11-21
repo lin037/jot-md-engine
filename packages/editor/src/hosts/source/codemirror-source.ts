@@ -42,7 +42,7 @@ import {
   executeSourceAction,
   findNext,
   findPrevious,
-  getSearchQuery,
+  getSourceSearchQuery,
   openSourceSearch,
   replaceAll,
   replaceNext,
@@ -241,7 +241,7 @@ export class CodeMirrorSource {
   }
 
   get searchQuery(): EditorSearchQuery {
-    return getSearchQuery(this.view.state);
+    return getSourceSearchQuery(this.view);
   }
 
   openSearch(options: { readonly replace?: boolean } = {}): boolean {

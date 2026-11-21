@@ -141,6 +141,32 @@ export async function runKeyboardScenarios({ c, load, settle, confirmed, key, sc
   await press('Escape');
   results.push({ case: 'keyboard-search-readonly-invalid-regex' });
 
+  // 大文档防抖期间，面板外调用 replaceAll()/searchQuery 必须读取面板当前显示的新词。
+  const debouncedReplaceDoc = `red blue\n${'filler line\n'.repeat(4000)}`;
+  await fresh(debouncedReplaceDoc);
+  await c.evaluate(`(async () => {
+    await editor.openSearch();
+    editor.setSearchQuery({ search: 'red', replace: 'green' });
+  })()`);
+  const debouncedReplace = await c.evaluate(`(() => {
+    const input = document.querySelector('.cm-search input[name=search]');
+    input.value = 'blue';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    const queryBeforeReplace = editor.searchQuery.search;
+    const replaced = editor.replaceAll();
+    return {
+      queryBeforeReplace,
+      replaced,
+      firstLine: editor.value.split('\\n', 1)[0],
+    };
+  })()`);
+  await confirmed();
+  assert.equal(debouncedReplace.queryBeforeReplace, 'blue', 'public searchQuery reflects pending panel input during debounce');
+  assert.equal(debouncedReplace.replaced, true, 'external replaceAll executes against pending panel input');
+  assert.equal(debouncedReplace.firstLine, 'red green', 'external replaceAll replaces the live panel query rather than the stale pre-debounce query');
+  await press('Escape');
+  results.push({ case: 'keyboard-search-debounced-external-replace-all', ...debouncedReplace });
+
   await fresh('keyboard text', 0, 8);
   await press('p', { modifier: editorMod, shift: true }); await settle();
   assert(await c.evaluate(`document.activeElement instanceof HTMLInputElement && !view.contentDOM.contains(document.activeElement)`), 'command palette opens and owns keyboard focus');
