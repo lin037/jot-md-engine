@@ -117,11 +117,15 @@ try{
       const pane=view.scrollDOM, bounds=pane.getBoundingClientRect();
       const rows=[...view.contentDOM.querySelectorAll('.cm-line')];
       const row=rows.find(line=>line.textContent==='SCROLL_PROBE_END');
+      const vertical=rect=>rect&&{top:rect.top,bottom:rect.bottom};
+      const text=row?.ownerDocument.createRange();
+      if(text) text.selectNodeContents(row);
       return {
         viewport:view.viewport, visibleRanges:view.visibleRanges, length:view.state.doc.length,
         scrollTop:pane.scrollTop, scrollHeight:pane.scrollHeight, clientHeight:pane.clientHeight,
-        bounds, row:row?.getBoundingClientRect(), pageTail:rows.slice(-4).map(line=>line.textContent.slice(0,80)),
-        endCaret:view.coordsAtPos(view.state.doc.length), live:editor.livePreview.snapshot, errors:probe.errors,
+        bounds:vertical(bounds), row:vertical(row?.getBoundingClientRect()), text:vertical(text?.getBoundingClientRect()),
+        pageTail:rows.slice(-4).map(line=>line.textContent.slice(0,80)),
+        endCaret:vertical(view.coordsAtPos(view.state.doc.length)), live:editor.livePreview.snapshot, errors:probe.errors,
       };
     })()`).catch(cause => ({ captureError: String(cause) }));
     console.error('Scrollbar end geometry', JSON.stringify(geometry));
