@@ -239,6 +239,7 @@ fn projection_and_snapshot_fields_match_the_typescript_shape() {
                         to_exclusive: 5100,
                     },
                     max_depth: 1,
+                    collapsed_headings: Vec::new(),
                 }],
                 mode: ProjectionMode::Preview,
                 active_range: None,

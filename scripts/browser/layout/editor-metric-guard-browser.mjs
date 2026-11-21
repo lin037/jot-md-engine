@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { connectCdp, findChrome, stopProcess, waitForEvaluation, waitForHttp } from '../support/browser-test-utils.mjs';
+import { connectCdp, findChrome, keyboardEventKey, stopProcess, waitForEvaluation, waitForHttp } from '../support/browser-test-utils.mjs';
 
 const port=Number(process.env.JOT_METRIC_TEST_PORT??4332),debugPort=Number(process.env.JOT_METRIC_TEST_DEBUG_PORT??9532);
 const profile=mkdtempSync(resolve(tmpdir(),'jot-metric-e2e-'));
@@ -89,7 +89,7 @@ try {
   assert.equal(inserted,await c.evaluate(`source.slice(0,${position})+'Z'+source.slice(${position})`));
   assert.equal(await c.evaluate('view.state.selection.main.head'),position+1);
   const mod=await c.evaluate('/Mac|iPhone|iPad/.test(navigator.platform)')?4:2;
-  const key=async(name,modifiers=0)=>{for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:name,code:name==='z'?'KeyZ':name,windowsVirtualKeyCode:name==='z'?90:8,modifiers})};
+  const key=async(name,modifiers=0)=>{for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:keyboardEventKey(name,modifiers),code:name==='z'?'KeyZ':name,windowsVirtualKeyCode:name==='z'?90:8,modifiers})};
   await key('z',mod);await wait('editor.value===source');
   await key('z',mod|8);await wait(`editor.value===${JSON.stringify(inserted)}`);
   await key('Backspace');await wait('editor.value===source');

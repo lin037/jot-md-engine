@@ -72,7 +72,7 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run package:verify --standalone
       - run: pnpm run benchmark:build
-      - run: pnpm run test:browser demo
+      - run: pnpm run test:browser
         env:
           JOT_DEMO_BROWSER_BASE: /jot-preview/
       - name: Upload editor package

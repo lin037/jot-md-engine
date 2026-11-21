@@ -373,6 +373,7 @@ try {
   const richAfter=await c.evaluate(`(()=>{const rows=[...view.contentDOM.querySelectorAll('.cm-line')],first=rows.find(n=>n.textContent.includes('带图片的引用')),after=rows.find(n=>n.textContent.includes('普通段落')),shell=view.contentDOM.querySelector('.jot-live-preview-source-block-shell--block-quote');return{first:first.getBoundingClientRect().left,after:after.getBoundingClientRect().top,scroll:view.scrollDOM.scrollTop,shell:{css:shell.style.cssText,rect:JSON.stringify(shell.getBoundingClientRect()),padding:getComputedStyle(shell).padding},rows:rows.map(n=>({text:n.innerText.slice(0,40),top:n.getBoundingClientRect().top,height:n.getBoundingClientRect().height,depth:n.dataset.jotQuoteDepth}))}})()`);
   assert(Math.abs(richAfter.first-richBefore.first)<=1 && Math.abs(richAfter.after-richBefore.after)<=1 && Math.abs(richAfter.scroll-richBefore.scroll)<=1,
     `activating a quote containing an image must not move surrounding text: ${JSON.stringify({richBefore,richAfter})}`);
+  assert(await c.evaluate(`!!view.contentDOM.querySelector('img.jot-image')`), 'editing another quote line keeps the image rendered');
   assert.equal(await c.evaluate('editor.value'),rich,'activating a quoted image does not change source');
   const richImeAt=await c.evaluate('view.state.selection.main.head');
   await c.command('Input.imeSetComposition',{text:'ni',selectionStart:2,selectionEnd:2});
@@ -398,6 +399,9 @@ try {
   await c.evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
   const afterBlank=await c.evaluate(`view.contentDOM.querySelector('img.jot-image').getBoundingClientRect().top`);
   assert(Math.abs(afterBlank-restored.top)<=1,'clicking the blank after a quoted image must not move it');
+  await c.evaluate(`editor.input.setSelection(${rich.indexOf('![示意]')+3});editor.focus()`);
+  await wait(`view.contentDOM.textContent.includes(${JSON.stringify(image)})`);
+  assert.equal(await c.evaluate('editor.value'),rich,'the image source is still editable when selected');
 
   const deepRich=rich.replace('> > 图：','> >>>>>> 图：');
   await c.evaluate(`editor.setValue(${JSON.stringify(deepRich)});editor.input.setSelection(0);editor.focus()`);

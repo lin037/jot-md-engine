@@ -65,13 +65,14 @@ export function createToolbarPlugin(options: ToolbarOptions = {}): MarkdownEdito
       const toolbar = document.createElement("div");
       toolbar.className = "jot-editor-toolbar";
       if (options.className?.trim()) toolbar.classList.add(...options.className.trim().split(/\s+/u));
-      toolbar.setAttribute("role", "group");
+      toolbar.setAttribute("role", "toolbar");
       toolbar.setAttribute("aria-label", "Markdown 工具栏");
       const status = document.createElement("span");
       status.className = "jot-editor-toolbar__status";
       status.setAttribute("role", "status");
       status.hidden = true;
       let activePicker: { readonly panel: HTMLElement; readonly trigger: HTMLButtonElement } | undefined;
+      let tabStop: HTMLButtonElement | undefined;
 
       const controls = groups.map((actions) => {
         const group = document.createElement("div");
@@ -79,6 +80,7 @@ export function createToolbarPlugin(options: ToolbarOptions = {}): MarkdownEdito
         const buttons = actions.map((id) => {
           const button = document.createElement("button");
           button.type = "button";
+          button.tabIndex = -1;
           button.className = "jot-editor-toolbar__button";
           button.dataset["jotToolbarCommand"] = id;
           const builtIn = Object.hasOwn(icons, id) ? icons[id] : undefined;
@@ -117,6 +119,42 @@ export function createToolbarPlugin(options: ToolbarOptions = {}): MarkdownEdito
         return { group, buttons };
       });
       toolbar.append(status);
+      const buttons = controls.flatMap(group => group.buttons.map(entry => entry.button));
+
+      function available(button: HTMLButtonElement): boolean {
+        return !button.hidden && !button.disabled;
+      }
+
+      function setTabStop(button: HTMLButtonElement | undefined): void {
+        if (tabStop === button) return;
+        if (tabStop !== undefined) tabStop.tabIndex = -1;
+        tabStop = button;
+        if (tabStop !== undefined) tabStop.tabIndex = 0;
+      }
+
+      toolbar.addEventListener("focusin", event => {
+        const button = event.target as HTMLButtonElement;
+        if (buttons.includes(button)) setTabStop(button);
+      });
+      toolbar.addEventListener("keydown", event => {
+        if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
+            !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        const enabled = buttons.filter(available);
+        const index = enabled.indexOf(event.target as HTMLButtonElement);
+        if (index < 0) return;
+        const forward = getComputedStyle(toolbar).direction === "rtl" ? "ArrowLeft" : "ArrowRight";
+        const next = event.key === "Home" ? 0 : event.key === "End" ? enabled.length - 1
+          : (index + (event.key === forward ? 1 : -1) + enabled.length) % enabled.length;
+        event.preventDefault();
+        enabled[next]!.focus({ preventScroll: true });
+      });
+      toolbar.addEventListener("focusout", event => {
+        const picker = activePicker;
+        if (!picker || toolbar.contains(event.relatedTarget as Node | null)) return;
+        queueMicrotask(() => {
+          if (activePicker === picker) closePicker();
+        });
+      });
 
       function requiresEdit(id: string): boolean {
         return Object.hasOwn(pickerTypes, id) ||
@@ -266,10 +304,16 @@ export function createToolbarPlugin(options: ToolbarOptions = {}): MarkdownEdito
         toolbar.hidden = controls.every(({ group }) => group.hidden);
         root.classList.toggle("jot-markdown-editor--with-toolbar", !toolbar.hidden);
         if (activePicker?.trigger.disabled || activePicker?.trigger.hidden) closePicker();
+        if (tabStop === undefined || !available(tabStop)) setTabStop(buttons.find(available));
       }
 
       const actionCleanups: (() => void)[] = [];
       try {
+        actionCleanups.push(editor.registerFocusTarget("focus.toolbar", toolbar, () => {
+          if (toolbar.hidden) return undefined;
+          closePicker();
+          return tabStop !== undefined && available(tabStop) ? tabStop : buttons.find(available);
+        }));
         for (const { buttons } of controls) {
           for (const { id, button, picker } of buttons) {
             if (picker === undefined) continue;

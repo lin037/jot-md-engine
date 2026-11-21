@@ -184,7 +184,7 @@ export interface DocumentTransaction {
 
 export type ProjectionMode = "source" | "preview" | "hybrid";
 
-export type ProjectionAxis = "syntax-children" | "source-lines" | "quote-lines" | "heading-section";
+export type ProjectionAxis = "syntax-children" | "source-lines" | "quote-lines" | "heading-section" | "heading-outline";
 
 export interface ProjectionSlice {
   /** 稳定语法节点 ID；`"0"` 表示文档根节点。 */
@@ -193,6 +193,8 @@ export interface ProjectionSlice {
   readonly window: ProjectionWindow;
   /** 内嵌后代层级；更深层子节点需要单独请求。 */
   readonly maxDepth: number;
+  /** On heading-outline, omit descendants of these stable heading IDs from the virtual axis. */
+  readonly collapsedHeadings?: readonly string[];
 }
 
 export type ProjectionWindow =

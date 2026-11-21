@@ -16,6 +16,7 @@ fn slice(
         axis,
         window: ProjectionWindow::Index { from, to_exclusive },
         max_depth,
+        collapsed_headings: Vec::new(),
     }
 }
 
@@ -224,6 +225,7 @@ fn one_generic_protocol_virtualizes_root_nested_and_opaque_content() {
                     after: 3,
                 },
                 max_depth: 0,
+                collapsed_headings: Vec::new(),
             }],
             mode: ProjectionMode::Preview,
             active_range: None,
@@ -415,6 +417,7 @@ fn around_range_keeps_a_zero_width_blank_line_at_the_anchor() {
                     after: 0,
                 },
                 max_depth: 0,
+                collapsed_headings: Vec::new(),
             }],
             mode: ProjectionMode::Preview,
             active_range: None,

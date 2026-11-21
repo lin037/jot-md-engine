@@ -1,6 +1,15 @@
 import { existsSync } from "node:fs";
 import { once } from "node:events";
 
+// CDP takes KeyboardEvent.key as supplied. Encode the shifted US key value
+// separately from the physical code so shortcuts work on every runner.
+export function keyboardEventKey(key, modifiers) {
+  if (!(modifiers & 8)) return key;
+  if (/^[a-z]$/u.test(key)) return key.toUpperCase();
+  if (/^[0-9]$/u.test(key)) return ")!@#$%^&*("[Number(key)];
+  return key;
+}
+
 export function findChrome() {
   const candidates = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",

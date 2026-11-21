@@ -18,7 +18,16 @@ export default defineConfig({
     sourcemap: true,
     rolldownOptions: {
       output: {
-        codeSplitting: { groups: editorChunkGroups },
+        codeSplitting: {
+          groups: [
+            ...editorChunkGroups,
+            {
+              name: "demo-panels",
+              test: /[\\/]apps[\\/]demo[\\/]src[\\/](?:runtime-panel|style-lab)\.ts$/u,
+              tags: ["$initial"],
+            },
+          ],
+        },
       },
     },
   },

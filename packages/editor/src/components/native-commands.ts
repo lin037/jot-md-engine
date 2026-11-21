@@ -4,6 +4,9 @@ import type { EditorCommand, EditorShortcut } from "../core/commands/index.js";
 const definitions = [
   ["command.palette", "命令面板", "编辑器", "查找和执行命令", "Mod-Shift-p", false],
   ["shortcut.settings", "快捷键设置", "编辑器", "查看、修改或禁用快捷键", undefined, false],
+  ["focus.editor", "返回编辑器", "导航", "聚焦正文", undefined, false],
+  ["focus.outline", "聚焦文档大纲", "导航", "浏览标题", undefined, false],
+  ["focus.toolbar", "聚焦编辑工具栏", "导航", "选择工具", undefined, false],
   ["search.open", "搜索", "搜索", "搜索全文，Enter 下一项，Shift-Enter 上一项", "Mod-f"],
   ["search.replace", "搜索和替换", "搜索", "替换当前项或全部匹配", "Mod-Shift-h"],
   ["search.next", "下一个匹配", "搜索", "循环定位下一个匹配", "F3"],

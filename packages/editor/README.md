@@ -90,6 +90,35 @@ const settings = mountShortcutSettings(settingsElement, editor.commands);
 
 `editor.replaceTableCell(offset, text)` 按源码位置替换单元格。列宽可用 `editor.setTableColumnWidth(tableId, column, width)` 和 `editor.resetTableLayout(tableId)` 控制。文本偏移量均以 UTF-16 码元计数。
 
+### 组件间切换焦点
+
+支持焦点导航的版本可以在快捷键设置中为「聚焦文档大纲」「聚焦编辑工具栏」和「返回编辑器」绑定按键。也可从命令面板直接执行。三条命令默认留空，宿主可以统一指定组合键。
+
+```ts
+editor.commands.configureShortcuts({
+  "focus.editor": "Mod-Shift-7",
+  "focus.outline": "Mod-Shift-8",
+  "focus.toolbar": "Mod-Shift-9",
+});
+```
+
+大纲和工具栏需要挂载在当前编辑器上。回到正文时保留编辑模式和当前选区，只读预览会聚焦正文视口。
+
+应用自己的面板也可以注册焦点命令。命令 ID 使用 `focus.` 前缀，命令执行时以同一个 ID 请求聚焦。
+
+```ts
+propertiesPanel.tabIndex = -1;
+editor.commands.register({
+  id: "focus.properties",
+  title: "聚焦属性面板",
+  requiresInput: false,
+  run: () => ({ action: "focus.properties", userEvent: "command.focus.properties" }),
+});
+const unbindProperties = editor.registerFocusTarget("focus.properties", propertiesPanel);
+```
+
+`registerFocusTarget` 的第三个参数可以返回要聚焦的控件。焦点在面板内时也能使用已绑定的焦点命令。面板卸载时调用 `unbindProperties()`。
+
 ## 样式和布局
 
 默认样式随组件注入。要由应用统一加载编辑器样式，可导入 `@jot-md/editor/styles.css`，并在构造选项中设置 `installStyles: false`。只需基础样式时可改用 `@jot-md/editor/core.css`。
@@ -169,6 +198,32 @@ boldButton.addEventListener("click", () => {
 
 需要直接管理会话或观察渲染耗时时，可分别从 `@jot-md/editor/adapter` 和 `@jot-md/editor/observability` 导入对应接口。自定义输入、预览和 Worker 时使用 `/source`、`/preview`、`/render`、`/worker` 子路径。
 
+
+### 文档大纲
+
+大纲按正文标题的层级显示目录，点击标题可跳到正文。使用提供 `@jot-md/editor/outline` 入口的编辑器版本，在侧栏、抽屉或其他位置准备一个容器，例如 `<aside id="outline"></aside>`。
+
+```ts
+import { mountOutline } from "@jot-md/editor/outline";
+
+const sidebar = document.querySelector<HTMLElement>("#outline")!;
+const outline = mountOutline(sidebar, editor);
+```
+
+移除面板或切换绑定的编辑器前，调用 `outline.dispose()`。销毁编辑器时会自动解除绑定。
+
+也可以从同一入口导入 `createOutlinePlugin`，把 `createOutlinePlugin({ container: sidebar, enabled: false })` 加入编辑器的 `plugins`。打开编辑器后，调用 `await editor.setPluginEnabled("outline", true)` 显示大纲，传 `false` 关闭。省略 `enabled` 时默认开启。
+
+`mountOutline` 的第三个参数和 `createOutlinePlugin` 的配置共用以下选项。
+
+| 选项 | 默认值 | 用途 |
+| --- | --- | --- |
+| `rowHeight` | `32` | 每行高度，单位为 CSS 像素。 |
+| `scrollbar` | `"direct"` | 点击轨道按比例跳转，拖动滑块滚动。传 `"native"` 使用浏览器原生滚动条。 |
+| `label` | `"文档大纲"` | 大纲的无障碍名称。 |
+| `onError` | — | 处理加载大纲或跳转时抛出的异常。 |
+
+多个大纲面板可分别折叠子标题。大纲从容器继承字体和文字颜色。`--jot-outline-max-height` 和 `--jot-outline-indent` 分别控制高度上限和每级缩进。`--jot-outline-accent` 设置当前章节的文字颜色，`--jot-outline-highlight` 设置当前章节和悬停项的背景色。
 
 ## 自定义样式
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { keyboardEventKey } from '../../support/browser-test-utils.mjs';
 
 /** Native component integration: after loading, every editing action is a real key. */
 export async function runKeyboardScenarios({ c, load, settle, confirmed, key, screenshot, results }) {
@@ -8,7 +9,7 @@ export async function runKeyboardScenarios({ c, load, settle, confirmed, key, sc
   async function press(name, { modifier = 0, shift = false } = {}) {
     const modifiers = modifier | (shift ? 8 : 0);
     const code = /^[a-z]$/i.test(name) ? `Key${name.toUpperCase()}` : name === ' ' ? 'Space' : name;
-    const key = shift && /^[a-z]$/i.test(name) ? name.toUpperCase() : name;
+    const key = keyboardEventKey(name, modifiers);
     const virtual = { Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ' ': 32, F3: 114, ArrowDown: 40, ArrowUp: 38 }[name]
       ?? (/^[a-z]$/i.test(name) ? name.toUpperCase().charCodeAt(0) : undefined);
     await c.command('Input.dispatchKeyEvent', { type: 'keyDown', key, code, modifiers,
