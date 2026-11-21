@@ -110,7 +110,23 @@ try{
     `a single track click directly reaches a distant window after analysis: ${JSON.stringify(confirmedJump)}`);
   for(const type of ['mousePressed','mouseReleased'])await c.command('Input.dispatchMouseEvent',{type,button:'left',clickCount:1,x:confirmedX,y:confirmed.track.bottom-4});
   await wait(`view.viewport.to===view.state.doc.length && view.scrollDOM.scrollTop>=view.scrollDOM.scrollHeight-view.scrollDOM.clientHeight-1`,60000);
-  await wait(`(()=>{const pane=view.scrollDOM.getBoundingClientRect();return [...view.contentDOM.querySelectorAll('.cm-line')].some(line=>{if(line.textContent!=='SCROLL_PROBE_END')return false;const row=line.getBoundingClientRect();return row.top>=pane.top&&row.bottom<=pane.bottom})})()`,60000);
+  try {
+    await wait(`(()=>{const pane=view.scrollDOM.getBoundingClientRect();return [...view.contentDOM.querySelectorAll('.cm-line')].some(line=>{if(line.textContent!=='SCROLL_PROBE_END')return false;const row=line.getBoundingClientRect();return row.top>=pane.top&&row.bottom<=pane.bottom})})()`,60000);
+  } catch (error) {
+    const geometry = await c.evaluate(`(()=>{
+      const pane=view.scrollDOM, bounds=pane.getBoundingClientRect();
+      const rows=[...view.contentDOM.querySelectorAll('.cm-line')];
+      const row=rows.find(line=>line.textContent==='SCROLL_PROBE_END');
+      return {
+        viewport:view.viewport, visibleRanges:view.visibleRanges, length:view.state.doc.length,
+        scrollTop:pane.scrollTop, scrollHeight:pane.scrollHeight, clientHeight:pane.clientHeight,
+        bounds, row:row?.getBoundingClientRect(), pageTail:rows.slice(-4).map(line=>line.textContent.slice(0,80)),
+        endCaret:view.coordsAtPos(view.state.doc.length), live:editor.livePreview.snapshot, errors:probe.errors,
+      };
+    })()`).catch(cause => ({ captureError: String(cause) }));
+    console.error('Scrollbar end geometry', JSON.stringify(geometry));
+    throw error;
+  }
   const confirmedBottom=await snapshot();
   assert(confirmedBottom.sourceAt>confirmedBottom.doc*.95,'the confirmed scrollbar end reaches the real document end');
   for(const type of ['mousePressed','mouseReleased'])await c.command('Input.dispatchMouseEvent',{type,button:'left',clickCount:1,x:confirmedX,y:confirmed.track.top+4});
