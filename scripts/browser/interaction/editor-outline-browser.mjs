@@ -80,6 +80,12 @@ try {
   assert.deepEqual(await run(() => f.labels()), ["甲😀", "同名", "同名", "无标题"]);
   assert.deepEqual(await run(() => f.buttons().map(b => [b.getAttribute("aria-level"), b.getAttribute("aria-expanded")])),
     [["1", "true"], ["2", null], ["2", "true"], ["3", null]]);
+  assert.deepEqual(await run(() => f.buttons().map(row => {
+    const icon = row.querySelector(".jot-outline__chevron");
+    if (!icon) return null;
+    const css = getComputedStyle(icon);
+    return [icon.getAttribute("aria-hidden"), css.strokeLinecap, css.transform];
+  })), [["true", "round", "none"], null, ["true", "round", "none"], null]);
   await run(() => {
     f.buttons()[2].querySelector(".jot-outline__toggle").click();
     f.treeKey = (i, key) => {
@@ -89,6 +95,7 @@ try {
     };
   });
   await wait("f.buttons().length === 3");
+  assert.equal(await run(() => getComputedStyle(f.buttons()[2].querySelector(".jot-outline__chevron")).transform), "matrix(0, -1, 1, 0, 0, 0)");
   await run(() => f.treeKey(0, "ArrowLeft"));
   await wait("f.labels().join() === '甲😀'");
   assert.deepEqual(await run(() => [f.editor.revision, f.editor.input.view.state.selection.main.head, f.editor.headingFolds.ranges.length]), [0, 0, 0]);

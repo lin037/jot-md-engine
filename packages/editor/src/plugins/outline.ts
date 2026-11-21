@@ -2,6 +2,7 @@ import type { RenderNode, Revision } from "@jot-md/editor-protocol";
 import type { MarkdownEditor } from "../component/markdown-editor.js";
 import { booleanAttribute, numberAttribute, numbersAttribute } from "../components/common/dom-renderer.js";
 import { safeUtf16Offset } from "../components/common/render-utils.js";
+import { chevronDownPaths, createStrokeIcon } from "../components/common/stroke-icon.js";
 import { DirectScrollbar, type EditorScrollbarMode } from "../layout/direct-scrollbar.js";
 import type { MarkdownEditorPlugin } from "./registry.js";
 
@@ -26,9 +27,11 @@ const styles = `
   border: 0; border-radius: .3em; background: transparent; color: inherit; font: inherit; text-align: start;
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
 .jot-outline__label { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
-.jot-outline__toggle { flex: 0 0 1.3em; align-self: stretch; display: grid; place-items: center; }
-.jot-outline__row[aria-expanded="true"] .jot-outline__toggle::before { content: var(--jot-heading-fold-expanded-icon, "⌄"); }
-.jot-outline__row[aria-expanded="false"] .jot-outline__toggle::before { content: var(--jot-heading-fold-collapsed-icon, "›"); }
+.jot-outline__toggle { flex: 0 0 max(24px, 1.6em); align-self: stretch; display: grid; place-items: center; }
+.jot-outline__chevron { inline-size: 1.25em; block-size: 1.25em; pointer-events: none;
+  color: color-mix(in srgb, currentColor 80%, transparent); }
+.jot-outline__row[aria-expanded="false"] .jot-outline__chevron { transform: rotate(-90deg); }
+.jot-outline__row[aria-expanded="false"]:dir(rtl) .jot-outline__chevron { transform: rotate(90deg); }
 .jot-outline__row:hover, .jot-outline__row[aria-current] { background: var(--jot-outline-highlight, color-mix(in srgb, currentColor 9%, transparent)); }
 .jot-outline__row[aria-current] { color: var(--jot-outline-accent, var(--jot-link-color, inherit)); font-weight: 600; }
 .jot-outline__row:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
@@ -149,8 +152,18 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
       button.tabIndex = node.id === tabId ? 0 : -1;
       button.style.setProperty("--jot-outline-level", String(depth));
       button.setAttribute("aria-level", String(depth));
-      if (booleanAttribute(node, "hasChildren")) button.setAttribute("aria-expanded", String(!collapsed.has(node.id)));
-      else button.removeAttribute("aria-expanded");
+      const toggle = button.firstElementChild!;
+      if (booleanAttribute(node, "hasChildren")) {
+        if (!toggle.firstChild) {
+          const chevron = createStrokeIcon(document, chevronDownPaths, 2.2);
+          chevron.classList.add("jot-outline__chevron");
+          toggle.append(chevron);
+        }
+        button.setAttribute("aria-expanded", String(!collapsed.has(node.id)));
+      } else if (button.hasAttribute("aria-expanded")) {
+        toggle.replaceChildren();
+        button.removeAttribute("aria-expanded");
+      }
       const title = button.lastElementChild!;
       if (title.textContent !== label) title.textContent = label;
       button.setAttribute("aria-label", "H" + level + " " + label);

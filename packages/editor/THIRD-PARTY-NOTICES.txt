@@ -343,7 +343,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ========================================================================
-Tabler Icons v3.45.0 (editor toolbar)
+Tabler Icons v3.45.0 (editor toolbar and outline)
 https://github.com/tabler/tabler-icons/tree/v3.45.0
 
 MIT License

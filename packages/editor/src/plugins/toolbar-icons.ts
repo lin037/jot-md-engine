@@ -1,4 +1,6 @@
 // Tabler Icons v3.45.0 (MIT). See THIRD-PARTY-NOTICES.txt.
+import { chevronDownPaths, createStrokeIcon } from "../components/common/stroke-icon.js";
+
 const paths = {
   "arrow-back-up": [
     "M9 14l-4 -4l4 -4",
@@ -48,9 +50,7 @@ const paths = {
   "command": [
     "M7 9a2 2 0 1 1 2 -2v10a2 2 0 1 1 -2 -2h10a2 2 0 1 1 -2 2v-10a2 2 0 1 1 2 2h-10",
   ],
-  "chevron-down": [
-    "M6 9l6 6l6 -6",
-  ],
+  "chevron-down": chevronDownPaths,
   "dots": [
     "M5 12h.01",
     "M12 12h.01",
@@ -80,20 +80,5 @@ const paths = {
 export type ToolbarIcon = keyof typeof paths;
 
 export function toolbarIcon(document: Document, name: ToolbarIcon): SVGSVGElement {
-  const namespace = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(namespace, "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("focusable", "false");
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "1.75");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  for (const data of paths[name]) {
-    const path = document.createElementNS(namespace, "path");
-    path.setAttribute("d", data);
-    svg.append(path);
-  }
-  return svg;
+  return createStrokeIcon(document, paths[name]);
 }
