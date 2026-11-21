@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { keyboardEventKey } from '../../support/browser-test-utils.mjs';
 
 // Exercise edits through the same CodeMirror input and explicit engine mirror
 // ports that the product exposes. Do not derive Markdown semantics from DOM.
@@ -9,9 +10,10 @@ export async function runTreeEditScenarios({c,load,settle,confirmed,key,screensh
   async function press(name, modifiers = 0) {
     const code = name.length === 1 ? 'Key' + name.toUpperCase() : name;
     const virtual = name.length === 1 ? name.toUpperCase().charCodeAt(0) : undefined;
-    await c.command('Input.dispatchKeyEvent', {type:'keyDown', key:name, code, modifiers,
+    const key = keyboardEventKey(name, modifiers);
+    await c.command('Input.dispatchKeyEvent', {type:'keyDown', key, code, modifiers,
       ...(virtual === undefined ? {} : {windowsVirtualKeyCode:virtual})});
-    await c.command('Input.dispatchKeyEvent', {type:'keyUp', key:name, code, modifiers});
+    await c.command('Input.dispatchKeyEvent', {type:'keyUp', key, code, modifiers});
   }
 
   async function type(text) {

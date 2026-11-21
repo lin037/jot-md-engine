@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
-import { connectCdp, findChrome, stopProcess, waitForEvaluation, waitForHttp } from '../support/browser-test-utils.mjs';
+import { connectCdp, findChrome, keyboardEventKey, stopProcess, waitForEvaluation, waitForHttp } from '../support/browser-test-utils.mjs';
 
 const port = Number(process.env.JOT_INPUT_CONTRACT_PORT ?? 4200), debugPort = Number(process.env.JOT_INPUT_CONTRACT_DEBUG_PORT ?? 9349);
 const origin = `http://127.0.0.1:${port}`, debugOrigin = `http://127.0.0.1:${debugPort}`;
@@ -42,7 +42,13 @@ async function setup(name,mode,readOnly,positions,initial='abcdef'){
 }
 async function state(){return c.evaluate(`({source:editor.confirmedValue,mirror:view.state.doc.toString(),ranges:view.state.selection.ranges.map(r=>({anchor:r.anchor,head:r.head})),readOnly:view.state.readOnly,errors:[...caseErrors],events:[...caseEvents]})`);}
 async function insert(text){await c.command('Input.insertText',{text});await stable();}
-async function key(name,modifiers){const code=name.toUpperCase();await c.command('Input.dispatchKeyEvent',{type:'keyDown',key:name,code:'Key'+code,modifiers,windowsVirtualKeyCode:code.charCodeAt(0)});await c.command('Input.dispatchKeyEvent',{type:'keyUp',key:name,code:'Key'+code,modifiers});await stable();}
+async function key(name, modifiers) {
+ const letter = name.toUpperCase();
+ const event = { key: keyboardEventKey(name, modifiers), code: 'Key' + letter, modifiers };
+ await c.command('Input.dispatchKeyEvent', { type: 'keyDown', ...event, windowsVirtualKeyCode: letter.charCodeAt(0) });
+ await c.command('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
+ await stable();
+}
 async function verify(name,expected,prevented){const current=await state();assert.equal(current.source,expected,`${name}: exact confirmed text`);assert.equal(current.mirror,expected,`${name}: CM/confirmed source agree`);assert.deepEqual(current.errors,[],`${name}: editor and worker report no errors`);if(prevented!==undefined){assert(current.events.some(e=>e.isTrusted && e.type==='insertText' && e.prevented===prevented),`${name}: trusted beforeinput takes expected native/fast path`);}return {name,sourceLength:current.source.length,ranges:current.ranges,events:current.events};}
 try{
  server=spawn(resolve('node_modules/.bin/vite'),['--config',resolve(fixture,'vite.config.mjs')],{stdio:['ignore','pipe','pipe']});

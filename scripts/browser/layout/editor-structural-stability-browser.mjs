@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { connectCdp, findChrome, stopProcess, waitForEvaluation, waitForHttp } from '../support/browser-test-utils.mjs';
+import { connectCdp, findChrome, keyboardEventKey, stopProcess, waitForEvaluation, waitForHttp } from '../support/browser-test-utils.mjs';
 
 const port=Number(process.env.JOT_STRUCTURAL_PORT??4311),debugPort=Number(process.env.JOT_STRUCTURAL_DEBUG_PORT??9511);
 const profile=mkdtempSync(resolve(tmpdir(),'jot-structural-browser-'));
@@ -46,7 +46,7 @@ try {
   const key=async(name,modifiers=0)=>{
     const code=name===' '?'Space':/^[a-z]$/iu.test(name)?`Key${name.toUpperCase()}`:name;
     const number={Enter:13,Backspace:8,Delete:46,z:90,' ':32}[name]??0;
-    for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:name,code,windowsVirtualKeyCode:number,modifiers,...(type==='keyDown'&&name===' '?{text:' '}: {})});
+    for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:keyboardEventKey(name,modifiers),code,windowsVirtualKeyCode:number,modifiers,...(type==='keyDown'&&name===' '?{text:' '}: {})});
   };
   const snapshot=()=>c.evaluate(`(()=>{
     const rows=[...view.contentDOM.querySelectorAll('.cm-line')].map(element=>{

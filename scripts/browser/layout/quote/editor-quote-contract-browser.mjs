@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { connectCdp, findChrome, stopProcess, waitForEvaluation, waitForHttp } from '../../support/browser-test-utils.mjs';
+import { connectCdp, findChrome, keyboardEventKey, stopProcess, waitForEvaluation, waitForHttp } from '../../support/browser-test-utils.mjs';
 
 const port = Number(process.env.JOT_QUOTE_CONTRACT_PORT ?? 4322);
 const debugPort = Number(process.env.JOT_QUOTE_CONTRACT_DEBUG_PORT ?? 9522);
@@ -73,7 +73,7 @@ try {
   const key = async (name, modifiers = 0) => {
     const code = name === 'z' ? 'KeyZ' : name;
     const number = { Backspace: 8, Delete: 46, Enter: 13, Tab: 9, z: 90 }[name] ?? 0;
-    for (const type of ['keyDown', 'keyUp']) await c.command('Input.dispatchKeyEvent', { type, key: name, code, windowsVirtualKeyCode: number, modifiers });
+    for (const type of ['keyDown', 'keyUp']) await c.command('Input.dispatchKeyEvent', { type, key: keyboardEventKey(name, modifiers), code, windowsVirtualKeyCode: number, modifiers });
   };
   const snapshot = () => c.evaluate(`(()=>({value:editor.value,confirmed:editor.confirmedValue,head:view.state.selection.main.head,anchor:view.state.selection.main.anchor,
     caret:(()=>{const r=view.coordsAtPos(view.state.selection.main.head);return r?{left:r.left,top:r.top}:null})(),

@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { findChrome, connectCdp, waitForHttp, waitForEvaluation, stopProcess } from '../support/browser-test-utils.mjs';
+import { findChrome, connectCdp, waitForHttp, waitForEvaluation, stopProcess, keyboardEventKey } from '../support/browser-test-utils.mjs';
 const seed = Number(process.env.JOT_FUZZ_SEED ?? 0x51ea2026) >>> 0;
 const harnessSha256=createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex');
 const target = Number(process.env.JOT_FUZZ_STEPS ?? 1000);
@@ -61,8 +61,9 @@ async function input(method, params) {
 async function key(name, modifiers = 0) {
     const code = /^[a-z]$/i.test(name) ? 'Key' + name.toUpperCase() : name === ' ' ? 'Space' : name;
     const virtual = { Enter: 13, Escape: 27, Tab: 9, ' ': 32, Backspace: 8, Delete: 46, Home: 36, End: 35, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, F3: 114 }[name] ?? (/^[a-z]$/i.test(name) ? name.toUpperCase().charCodeAt(0) : undefined);
-    await input('Input.dispatchKeyEvent', { type: 'keyDown', key: name, code, modifiers, ...(virtual === undefined ? {} : { windowsVirtualKeyCode: virtual }), ...(name === 'Enter' && modifiers === 0 ? { text: '\r', unmodifiedText: '\r' } : {}), ...(name === 'a' && modifiers === mod ? { commands: ['selectAll'] } : {}) });
-    await input('Input.dispatchKeyEvent', { type: 'keyUp', key: name, code, modifiers });
+    const key = keyboardEventKey(name, modifiers);
+    await input('Input.dispatchKeyEvent', { type: 'keyDown', key, code, modifiers, ...(virtual === undefined ? {} : { windowsVirtualKeyCode: virtual }), ...(name === 'Enter' && modifiers === 0 ? { text: '\r', unmodifiedText: '\r' } : {}), ...(name === 'a' && modifiers === mod ? { commands: ['selectAll'] } : {}) });
+    await input('Input.dispatchKeyEvent', { type: 'keyUp', key, code, modifiers });
 }
 const settle = () => c.evaluate(`new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,20))))`);
 async function stable() { await waitForEvaluation(c, `editor.session.adapter.analysis?.state==='complete'&&editor.confirmedValue===view.state.doc.toString()`, 15000); await settle(); await c.evaluate('editor.livePreview.settled()'); }
