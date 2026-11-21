@@ -52,3 +52,6 @@ Desktop.ini
 
 # 原始调研、历史设计稿和本机排查记录
 /docs/_local/
+
+# 独立的本地桌面应用
+/jot-desktop/

@@ -1104,7 +1104,8 @@ export class LivePreviewController {
     this.#directScrollbar?.schedule();
     view.requestMeasure();
     if (!this.#opened || !this.#enabled) return;
-    this.#epoch += 1;
+    // Layout changes keep the document projection valid. A refresh awaiting
+    // the Worker can finish loading details and plan with the updated metrics.
     this.#schedule(false);
     await this.settled();
     if (!this.#disposed && view.state.doc === document && epoch === this.#layoutEpoch && scrollEpoch === this.#userScrollEpoch && anchor !== undefined) {
