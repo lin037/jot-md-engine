@@ -792,6 +792,37 @@ function active_quote_source_marker_is_nonlayout_presentation(): void {
     item.attributes?.["data-jot-quote-marker-only"] === "true");
 }
 
+function quote_keeps_rendered_inline_geometry_outside_the_edited_line(): void {
+  const imageSource = "![plot](plot.png)";
+  const mathSource = "$x^2$";
+  const source = `> edit\n> Image: ${imageSource}\n> Formula: ${mathSource}`;
+  const imageFrom = source.indexOf(imageSource);
+  const mathFrom = source.indexOf(mathSource);
+  const image = node("image", imageFrom, imageFrom + imageSource.length, { type: "source" });
+  const math = node("inline-math", mathFrom, mathFrom + mathSource.length, { type: "source" });
+  const quote = node("block-quote", 0, source.length, structured(
+    node("paragraph", imageFrom, source.length, structured(image, math)),
+  ));
+  const rendered = (caret: number, forceSource: boolean, revealSyntax = false): string => {
+    const plan = planLivePreview({
+      source,
+      nodes: [quote],
+      selections: [{ from: caret, to: caret }],
+      forceSource,
+      revealSyntax,
+    });
+    return plan.decorations.flatMap(item =>
+      item.type === "replace" && item.widget !== undefined && item.from < item.to ? [item.widget.kind] : [],
+    ).join(",");
+  };
+  for (const forceSource of [false, true]) {
+    equal(rendered(3, forceSource), "image,inline-math");
+    equal(rendered(source.indexOf("Image:"), forceSource), "inline-math");
+    equal(rendered(source.indexOf("Formula:"), forceSource), "image");
+  }
+  equal(rendered(3, true, true), "");
+}
+
 function nested_quote_uses_confirmed_lines_and_richer_inline_owner_once(): void {
   const source = "> > **bold**";
   const strong = node("strong", 4, 12, structured(node("text", 6, 10, { type: "source" })));
@@ -1161,6 +1192,7 @@ table_mapped_input_uses_the_component_serializer();
 table_mapped_deletion_preserves_graphemes();
 native_active_source_does_not_consume_the_following_physical_blank_line();
 active_quote_source_marker_is_nonlayout_presentation();
+quote_keeps_rendered_inline_geometry_outside_the_edited_line();
 nested_quote_uses_confirmed_lines_and_richer_inline_owner_once();
 block_replacements_consume_one_terminating_line_break();
 table_preserves_a_source_blank_line_after_the_last_row();

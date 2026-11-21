@@ -84,6 +84,7 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
   const activeSourceNode = activeSourceRange === undefined
     ? undefined
     : resolveSourceRootAt(input.source, input.nodes, activeSourceRange.from);
+  const revealSyntax = input.revealSyntax === true;
 
   const add = (decoration: LivePreviewDecoration): boolean => {
     if (visualDecorationCount + lines.size >= maximum) {
@@ -731,12 +732,22 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
   };
 
   const activeInlineIds = new Set<string>();
+  let activeSourceLines: LivePreviewSelectionRange | undefined;
   const decorateActiveSourceInline = (node: RenderNode, localSelection?: LivePreviewSelectionRange): void => {
     node = quoteOwners.get(node.id) ?? node;
     if (activeInlineIds.has(node.id)) return;
     activeInlineIds.add(node.id);
     if (node.content.type !== "structured") return;
     for (const child of node.content.children) {
+      // CodeMirror edits physical lines even when several lines share a root.
+      // Keep the rendered geometry of inline widgets on the other lines.
+      if (isRenderSizedInline(child) && activeSourceRange !== undefined && !revealSyntax) {
+        activeSourceLines ??= physicalSourceLines(input.source, activeSourceRange);
+        if (!rangesTouch(child.sourceRange, activeSourceLines) && !selectionTouches(child.sourceRange)) {
+          visit(child);
+          continue;
+        }
+      }
       // Source-edit 不隐藏 Markdown delimiter，但应保留 Preview 的关键行内
       // typography token。这样 `[label](url)`、`**strong**`、`*emphasis*`
       // 在切换时不会突然丢失 underline / weight / italic 而产生视觉跳动。
@@ -827,14 +838,15 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
     // preview. On blur, keep ranges/search/IME in source; otherwise allow the
     // ordinary widget to render. Its next pointer activation focuses source.
     const previewOnBlur = selectedRoot && input.editorFocused === false &&
-      input.forceSource !== true && input.revealSyntax !== true &&
+      input.forceSource !== true && !revealSyntax &&
       !selectionTouches(node.sourceRange) &&
       input.pluginRegistry?.codeBlock(node) !== undefined;
     const active = selectedRoot && !previewOnBlur;
+    const quote = node.kind === "block-quote";
     let quoteHasRenderSizedInline = false;
-    if (node.kind === "block-quote") {
+    if (quote) {
       addNativeBlockLines(node, true, "jot-live-preview-block-quote", "jot-live-preview-source-block-quote");
-      applyQuotePresentation(node, input.revealSyntax !== true && (active || node.mode !== "source"));
+      applyQuotePresentation(node, !revealSyntax && (active || node.mode !== "source"));
       visitQuoteLineOwners(node, owner => { quoteHasRenderSizedInline ||= hasRenderSizedInline(owner); });
     }
     // `selection: "mapped"` 的 table-root 正常情况下不因 caret 回退为源码；
@@ -843,7 +855,7 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
     // composition 文本写到 replacement 边界。
     if (input.forceSource === true && active) {
       activeBlocks += 1;
-      const forceQuoteShell = node.kind === "block-quote" && (quoteHasRenderSizedInline || hasRenderSizedInline(node));
+      const forceQuoteShell = quote && (quoteHasRenderSizedInline || hasRenderSizedInline(node));
       if (isNativeTextBlock(node) && !forceQuoteShell) {
         addNativeBlockLines(
           node,
@@ -861,16 +873,16 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
         );
         addActiveSourceShell(node);
       }
-      if (input.revealSyntax !== true) {
+      if (!revealSyntax) {
         decorateActiveSourceBlockSyntax(node);
         decorateActiveSourceInline(node);
-        if (node.kind === "block-quote") visitQuoteLineOwners(node, owner => {
+        if (quote) visitQuoteLineOwners(node, owner => {
           decorateActiveSourceBlockSyntax(owner);
           decorateActiveSourceInline(owner);
         });
         hideClosedContainerSyntax(node, node.kind === "math-block");
         addSourceCompanionImages(node);
-        if (node.kind === "block-quote") visitQuoteLineOwners(node, addSourceCompanionImages);
+        if (quote) visitQuoteLineOwners(node, addSourceCompanionImages);
       }
       continue;
     }
@@ -902,20 +914,20 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
         addActiveSourceShell(node);
       }
       if (active) decorateActiveSourceBlockSyntax(node);
-      const quoteSelection = node.kind === "block-quote" && !geometryShell ? activeSourceRange : undefined;
+      const quoteSelection = quote && !geometryShell ? activeSourceRange : undefined;
       if (active) decorateActiveSourceInline(node, quoteSelection);
-      if (active && node.kind === "block-quote") visitQuoteLineOwners(node, owner => {
+      if (active && quote) visitQuoteLineOwners(node, owner => {
         decorateActiveSourceBlockSyntax(owner);
         decorateActiveSourceInline(owner, quoteSelection);
       });
       if (active) hideClosedContainerSyntax(node, node.kind === "math-block");
       if (active) addSourceCompanionImages(node);
-      if (active && node.kind === "block-quote") visitQuoteLineOwners(node, addSourceCompanionImages);
+      if (active && quote) visitQuoteLineOwners(node, addSourceCompanionImages);
       if (!active) fallbackBlocks += 1;
       continue;
     }
     visit(node, componentPlan, true);
-    if (node.kind === "block-quote") visitQuoteLineOwners(node, owner => visit(owner));
+    if (quote) visitQuoteLineOwners(node, owner => visit(owner));
   }
 
   for (const geometry of input.geometryGaps ?? []) {
@@ -1096,15 +1108,27 @@ function isNativeTextBlock(node: RenderNode): boolean {
   ].includes(node.kind);
 }
 
+function isRenderSizedInline(node: RenderNode): boolean {
+  return node.kind === "image" || node.kind === "inline-math";
+}
+
 function hasRenderSizedInline(node: RenderNode): boolean {
-  if (node.kind === "image" || node.kind === "inline-math") return true;
-  return node.content.type === "structured" &&
-    node.content.children.some(hasRenderSizedInline);
+  return isRenderSizedInline(node) ||
+    (node.content.type === "structured" && node.content.children.some(hasRenderSizedInline));
 }
 
 function physicalLineStart(source: string, offset: number): number {
   const safe = clamp(offset, 0, source.length);
   return source.lastIndexOf("\n", Math.max(0, safe - 1)) + 1;
+}
+
+function physicalSourceLines(source: string, selection: LivePreviewSelectionRange): LivePreviewSelectionRange {
+  const last = Math.max(selection.from, selection.to - 1);
+  const end = source.indexOf("\n", last);
+  return {
+    from: physicalLineStart(source, selection.from),
+    to: end < 0 ? source.length : end,
+  };
 }
 
 function listMarkerText(node: RenderNode): string | undefined {
