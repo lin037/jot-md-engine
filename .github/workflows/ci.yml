@@ -58,7 +58,7 @@ jobs:
       - run: cargo test --locked --workspace
 
   web:
-    name: Web and package
+    name: Web build and package
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.docs_only != 'true') }}
     runs-on: ubuntu-24.04
@@ -104,10 +104,33 @@ jobs:
         with:
           path: dist/demo
 
+  web_gate:
+    # Keep the required check name configured on main.
+    name: Web and package
+    needs: [changes, web, browser]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check package and browser results
+        env:
+          CLASSIFIED: ${{ needs.changes.result }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          WEB: ${{ needs.web.result }}
+          BROWSER: ${{ needs.browser.result }}
+        run: |
+          echo "classification=$CLASSIFIED docs_only=$DOCS_ONLY web=$WEB browser=$BROWSER"
+          case "$CLASSIFIED/$DOCS_ONLY" in
+            success/true)  expected=skipped ;;
+            success/false) expected=success ;;
+            *) exit 1 ;;
+          esac
+          [[ "$WEB" == "$expected" && "$BROWSER" == "$expected" ]]
+
   pages:
     name: Deploy Demo
     if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch && vars.DEPLOY_DEMO == 'true'
-    needs: [rust, web, browser]
+    needs: [rust, web_gate]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency: github-pages

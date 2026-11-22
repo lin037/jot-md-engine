@@ -1,4 +1,4 @@
-import type { RenderNode } from "@jot-md/editor-protocol";
+import type { RenderAttribute, RenderContent, RenderNode, RenderValue } from "@jot-md/editor-protocol";
 import { EditorView, WidgetType } from "@codemirror/view";
 import { sourceOffsetAtPoint } from "../../components/common/dom-position.js";
 import { rangeAttribute } from "../../components/common/dom-renderer.js";
@@ -86,12 +86,14 @@ export class LivePreviewWidget extends WidgetType {
     const equal = this.#to === other.#to &&
       this.#descriptor.selected === other.#descriptor.selected &&
       this.#descriptor.estimatedHeight === other.#descriptor.estimatedHeight &&
-      before.contentVersion === after.contentVersion &&
-      before.sourceRange.from === after.sourceRange.from &&
-      before.sourceRange.to === after.sourceRange.to &&
-      before.childCount === after.childCount &&
-      JSON.stringify(before.attributes) === JSON.stringify(after.attributes) &&
-      JSON.stringify(before.content) === JSON.stringify(after.content);
+      (before === after || (
+        before.contentVersion === after.contentVersion &&
+        before.sourceRange.from === after.sourceRange.from &&
+        before.sourceRange.to === after.sourceRange.to &&
+        before.childCount === after.childCount &&
+        sameRenderAttributes(before.attributes, after.attributes) &&
+        sameRenderContent(before.content, after.content)
+      ));
     if (equal) this.#transferDOM(other);
     return equal;
   }
@@ -483,4 +485,73 @@ function inPlaceGeometryKey(descriptor: LivePreviewWidgetDescriptor): string {
 function cssPixels(value: string | undefined): number {
   const parsed = Number.parseFloat(value ?? "");
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function sameRenderNode(left: RenderNode, right: RenderNode): boolean {
+  if (left === right) return true;
+  return left.id === right.id &&
+    left.kind === right.kind &&
+    left.mode === right.mode &&
+    left.contentVersion === right.contentVersion &&
+    left.sourceRange.from === right.sourceRange.from &&
+    left.sourceRange.to === right.sourceRange.to &&
+    left.childCount === right.childCount &&
+    sameRenderAttributes(left.attributes, right.attributes) &&
+    sameRenderContent(left.content, right.content);
+}
+
+function sameRenderAttributes(
+  left: readonly RenderAttribute[],
+  right: readonly RenderAttribute[],
+): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index]!;
+    const b = right[index]!;
+    if (a.name !== b.name || !sameRenderValue(a.value, b.value)) return false;
+  }
+  return true;
+}
+
+function sameRenderValue(left: RenderValue, right: RenderValue): boolean {
+  if (left === right) return true;
+  if (left.type !== right.type) return false;
+  switch (left.type) {
+    case "string":
+    case "number":
+    case "boolean":
+      return Object.is(left.value, (right as typeof left).value);
+    case "range": {
+      const other = (right as typeof left).value;
+      return left.value.from === other.from && left.value.to === other.to;
+    }
+    case "strings": {
+      const other = (right as typeof left).value;
+      if (left.value.length !== other.length) return false;
+      for (let index = 0; index < left.value.length; index += 1) {
+        if (left.value[index] !== other[index]) return false;
+      }
+      return true;
+    }
+    case "numbers": {
+      const other = (right as typeof left).value;
+      if (left.value.length !== other.length) return false;
+      for (let index = 0; index < left.value.length; index += 1) {
+        if (left.value[index] !== other[index]) return false;
+      }
+      return true;
+    }
+  }
+}
+
+function sameRenderContent(left: RenderContent, right: RenderContent): boolean {
+  if (left === right) return true;
+  if (left.type !== right.type) return false;
+  if (left.type !== "structured" || right.type !== "structured") return true;
+  if (left.children.length !== right.children.length) return false;
+  for (let index = 0; index < left.children.length; index += 1) {
+    if (!sameRenderNode(left.children[index]!, right.children[index]!)) return false;
+  }
+  return true;
 }
