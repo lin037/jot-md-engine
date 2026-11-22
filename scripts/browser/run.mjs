@@ -5,6 +5,7 @@ const suites = {
   demo: [
     ["demo/browser-smoke.mjs"],
     ["demo/demo-paper-browser.mjs"],
+    ["interaction/editor-outline-browser.mjs"],
     ["demo/editor-mermaid-viewport-browser.mjs"],
     ["demo/editor-mermaid-viewport-browser.mjs", "--preview"],
     ["demo/demo-large-mixed-browser.mjs"],

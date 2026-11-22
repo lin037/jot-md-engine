@@ -73,6 +73,10 @@
       "types": "./dist/plugins/toolbar.d.ts",
       "import": "./dist/plugins/toolbar.js"
     },
+    "./outline": {
+      "types": "./dist/plugins/outline.d.ts",
+      "import": "./dist/plugins/outline.js"
+    },
     "./source": {
       "types": "./dist/hosts/source/index.d.ts",
       "import": "./dist/hosts/source/index.js"

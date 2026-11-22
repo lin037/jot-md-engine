@@ -151,6 +151,7 @@ export class CodeMirrorSource {
     const extensions: Extension[] = [
       history(),
       EditorState.allowMultipleSelections.of(true),
+      EditorView.contentAttributes.of({ tabindex: "0" }),
       sourceReadOnlyFilter,
       sourceSearch(),
       this.#commandBindings.of(keymap.of(this.#commandKeymap())),
@@ -620,6 +621,7 @@ export class CodeMirrorSource {
       run: () => this.executeCommand(shortcut.command),
       ...(shortcut.command.startsWith("search.")
         ? { scope: "editor search-panel", preventDefault: true }
+        : shortcut.command.startsWith("focus.") ? { scope: "editor search-panel" }
         : {}),
     }));
   }

@@ -7,6 +7,8 @@ export interface MarkdownEditorPlugin {
   readonly id: string;
   /** A supplied plugin is enabled by default; set false for an opt-in UI. */
   readonly enabled?: boolean;
+  /** Defaults to true. External controls can opt out of remeasuring the editor on toggle. */
+  readonly affectsEditorLayout?: boolean;
   readonly codeBlocks?: readonly PluginCodeBlockRenderer[];
   /** Register commands or other editor capabilities and return their cleanup. */
   readonly activate?: (editor: MarkdownEditor) => void | (() => void);
@@ -99,6 +101,10 @@ export class EditorPluginRegistry {
     const entry = this.#entries.get(id);
     if (entry === undefined) throw new Error(`unknown editor plugin: ${id}`);
     return entry.enabled;
+  }
+
+  affectsEditorLayout(id: string): boolean {
+    return this.#entries.get(id)?.plugin.affectsEditorLayout !== false;
   }
 
   hasEnabledCodeBlocks(): boolean {

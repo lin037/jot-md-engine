@@ -1,3 +1,5 @@
+mod outline;
+
 use editor_protocol::{
     DocumentId, ProjectionAxis, ProjectionMode, ProjectionRequest, ProjectionSlice,
     ProjectionWindow, RenderAttribute, RenderContent, RenderMode, RenderNode, RenderOperation,
@@ -76,7 +78,9 @@ pub fn project_source_fallback(
         .map(|slice| {
             if matches!(
                 slice.axis,
-                ProjectionAxis::HeadingSection | ProjectionAxis::QuoteLines
+                ProjectionAxis::HeadingSection
+                    | ProjectionAxis::HeadingOutline
+                    | ProjectionAxis::QuoteLines
             ) {
                 empty_operation(slice)
             } else if slice.axis == ProjectionAxis::SourceLines {
@@ -136,6 +140,7 @@ fn project_slice(
         ProjectionAxis::HeadingSection => {
             heading_section_operation(text, syntax, slice, mode, true)
         }
+        ProjectionAxis::HeadingOutline => outline::operation(syntax, parent, slice, mode),
     }
 }
 
@@ -162,6 +167,8 @@ fn heading_section_operation(
     let mut attrs = Vec::new();
     number(&mut attrs, "level", u32::from(level));
     boolean(&mut attrs, "confirmed", confirmed);
+    // The body's start follows the known heading, even while its end is unparsed.
+    number(&mut attrs, "fromBlock", u32_len(block.saturating_add(1)));
     let prefix_end = heading
         .source_range
         .to
@@ -201,7 +208,6 @@ fn heading_section_operation(
             "sectionRange",
             TextRange::new(from, to.max(from)),
         );
-        number(&mut attrs, "fromBlock", u32_len(block.saturating_add(1)));
         number(
             &mut attrs,
             "toBlock",
@@ -1112,6 +1118,7 @@ mod tests {
                 to_exclusive: 1,
             },
             max_depth: 0,
+            collapsed_headings: Vec::new(),
         };
         let RenderOperation::ReplaceChildren { mut inserted, .. } =
             heading_section_operation(text, syntax, &slice, &ProjectionMode::Hybrid, complete);
@@ -1141,6 +1148,7 @@ mod tests {
                 to_exclusive: 7,
             },
             max_depth: 4,
+            collapsed_headings: Vec::new(),
         };
         let RenderOperation::ReplaceChildren {
             total_children,
@@ -1223,6 +1231,7 @@ mod tests {
                 to_exclusive: 10_003,
             },
             max_depth: 1,
+            collapsed_headings: Vec::new(),
         };
         let RenderOperation::ReplaceChildren {
             from,
@@ -1264,6 +1273,7 @@ mod tests {
                 to_exclusive: 3,
             },
             max_depth: 4,
+            collapsed_headings: Vec::new(),
         };
         let RenderOperation::ReplaceChildren { inserted, .. } = quote_line_operation(
             &text,
@@ -1331,10 +1341,24 @@ mod tests {
             attr(&section(&syntax, &text, headings[0].id, false), "confirmed"),
             Some(&RenderValue::Boolean(true))
         );
+        let partial = section(&syntax, &text, headings[2].id, false);
         assert_eq!(
-            attr(&section(&syntax, &text, headings[2].id, false), "confirmed"),
+            attr(&partial, "confirmed"),
             Some(&RenderValue::Boolean(false))
         );
+        let following_block = syntax
+            .root()
+            .children
+            .iter()
+            .position(|id| *id == headings[2].id)
+            .unwrap()
+            + 1;
+        assert_eq!(
+            attr(&partial, "fromBlock"),
+            Some(&RenderValue::Number(u32_len(following_block)))
+        );
+        assert_eq!(attr(&partial, "toBlock"), None);
+        assert_eq!(attr(&partial, "sectionRange"), None);
     }
 
     #[test]
@@ -1355,6 +1379,7 @@ mod tests {
                     to_exclusive: requested_to,
                 },
                 max_depth: 0,
+                collapsed_headings: Vec::new(),
             };
             let RenderOperation::ReplaceChildren {
                 from,
@@ -1517,6 +1542,7 @@ mod tests {
                 axis: ProjectionAxis::SyntaxChildren,
                 window,
                 max_depth: 1,
+                collapsed_headings: Vec::new(),
             };
             let expected = window_operation(&slice, eager.clone());
             RENDERED_NODES.with(|count| count.set(0));

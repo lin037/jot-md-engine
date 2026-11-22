@@ -33,6 +33,8 @@ pub enum ProjectionAxis {
     QuoteLines,
     /// Derived section boundaries for one confirmed top-level heading.
     HeadingSection,
+    /// Source-ordered, windowed top-level headings under the document root.
+    HeadingOutline,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,6 +48,9 @@ pub struct ProjectionSlice {
     /// slice 寻址。
     #[serde(default)]
     pub max_depth: u8,
+    /// For heading-outline only. Its window and total refer to visible headings of this binding.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub collapsed_headings: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -61,6 +61,23 @@ await editor.setLayoutStyle({
 
 外部字体加载完或宿主布局发生变化后，可调用 `await editor.invalidateLayout()` 重新读取并估算。需要指定固定行高、间距或换行方式时仍从布局 API 设置。要在加载前稳定预留媒体尺寸，可用 `surface.resolveImageMetadata` 提供图片的宽高或宽高比。调整表格列宽用 `setTableColumnWidth(tableId, column, width)`。实际选项见下列类型。[主题类型](../../packages/editor/src/component/theme.ts) · [布局类型](../../packages/editor/src/layout/pretext/options.ts) · [几何指标](../../packages/editor/src/layout/pretext/filter.ts)
 
+## 文档大纲样式
+
+给大纲容器添加自己的 class，例如 `.notes-outline`。大纲继承容器的字体和文字颜色，折叠箭头随字号缩放。
+
+```css
+.notes-outline {
+  font: 14px/1.4 system-ui, sans-serif;
+  color: #202726;
+  --jot-outline-max-height: 20rem;
+  --jot-outline-indent: 1em;
+  --jot-outline-accent: #086c60;
+  --jot-outline-highlight: #e7f1ed;
+}
+```
+
+前两个变量控制大纲的最大高度和每级缩进。`--jot-outline-accent` 设置当前章节的文字颜色，`--jot-outline-highlight` 设置当前章节和悬停项的背景色。调整行高可在挂载大纲时传入 `{ rowHeight: 36 }`。[大纲接入](../../packages/editor/README.md#文档大纲)
+
 ## 可用于视觉修饰的类名
 
 | 用途 | 选择器 |

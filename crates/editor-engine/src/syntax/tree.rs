@@ -164,7 +164,7 @@ pub struct SyntaxSnapshot {
     nodes: Vec<SyntaxNode>,
     node_index: HashMap<NodeId, usize>,
     next_node_id: u64,
-    // Built only for consumers requesting section boundaries. This is derived
+    // Built only for consumers requesting root headings. This is derived
     // state, not part of syntax identity or equality.
     heading_index: HeadingIndexCache,
 }
@@ -186,11 +186,14 @@ struct HeadingIndex {
 }
 
 #[derive(Clone, Debug)]
-struct HeadingIndexEntry {
-    id: NodeId,
-    block: usize,
-    level: u8,
-    next: Option<usize>,
+pub(crate) struct HeadingIndexEntry {
+    pub(crate) id: NodeId,
+    pub(crate) block: usize,
+    pub(crate) level: u8,
+    pub(crate) parent: Option<usize>,
+    pub(crate) depth: u8,
+    /// Outline slot of the next heading at this level or above.
+    pub(crate) next: Option<usize>,
 }
 
 impl SyntaxSnapshot {
@@ -286,7 +289,25 @@ impl SyntaxSnapshot {
     /// Root heading and its next same-or-higher-level root heading. The index
     /// is shared by cloned snapshots and retains IDs/slots, never copied text.
     pub(crate) fn heading_section(&self, id: NodeId) -> Option<(usize, u8, Option<usize>)> {
-        let index = self.heading_index.0.get_or_init(|| {
+        let index = self.heading_index();
+        let entry = index.entries.get(*index.by_id.get(&id)?)?;
+        Some((
+            entry.block,
+            entry.level,
+            entry.next.map(|next| index.entries[next].block),
+        ))
+    }
+
+    pub(crate) fn heading_slot(&self, id: NodeId) -> Option<usize> {
+        self.heading_index().by_id.get(&id).copied()
+    }
+
+    pub(crate) fn headings(&self) -> &[HeadingIndexEntry] {
+        &self.heading_index().entries
+    }
+
+    fn heading_index(&self) -> &HeadingIndex {
+        self.heading_index.0.get_or_init(|| {
             let mut entries: Vec<HeadingIndexEntry> = Vec::new();
             let mut by_id = HashMap::new();
             let mut open: Vec<usize> = Vec::new();
@@ -303,22 +324,22 @@ impl SyntaxSnapshot {
                     .is_some_and(|previous| entries[*previous].level >= *level)
                 {
                     let previous = open.pop().expect("checked stack");
-                    entries[previous].next = Some(block);
+                    entries[previous].next = Some(entries.len());
                 }
-                by_id.insert(root_id, entries.len());
-                open.push(entries.len());
+                let slot = entries.len();
+                by_id.insert(root_id, slot);
                 entries.push(HeadingIndexEntry {
                     id: root_id,
                     block,
                     level: *level,
+                    parent: open.last().copied(),
+                    depth: (open.len() + 1) as u8, // ATX headings have at most six levels.
                     next: None,
                 });
+                open.push(slot);
             }
             Arc::new(HeadingIndex { entries, by_id })
-        });
-        let entry = index.entries.get(*index.by_id.get(&id)?)?;
-        debug_assert_eq!(entry.id, id);
-        Some((entry.block, entry.level, entry.next))
+        })
     }
 
     pub(crate) fn with_id_allocator(mut self, ids: NodeIdAllocator) -> Self {

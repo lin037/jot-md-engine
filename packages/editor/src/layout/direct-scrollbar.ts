@@ -3,6 +3,9 @@ export type EditorScrollbarMode = "native" | "direct";
 export interface DirectScrollbarOptions {
   readonly scrollElement: HTMLElement;
   readonly contentElement: HTMLElement;
+  /** A positioned wrapper can keep the track inside an external panel or a shadow root. */
+  readonly trackHost?: HTMLElement;
+  readonly label?: string;
   readonly minThumbSize?: number;
   readonly installStyles?: boolean;
   /** 通知宿主并标明手势是否明确指向文末，随后写入 scrollTop。 */
@@ -38,6 +41,7 @@ export class DirectScrollbar {
   readonly #view: Window | undefined;
   readonly #resizeObserver: ResizeObserver | undefined;
   readonly #minThumbSize: number;
+  readonly #local: boolean;
   readonly #onUserScroll: DirectScrollbarOptions["onUserScroll"];
   readonly #onScroll = () => this.schedule();
   readonly #onResize = () => this.schedule();
@@ -55,14 +59,16 @@ export class DirectScrollbar {
     this.#onUserScroll = options.onUserScroll;
     this.#view = options.scrollElement.ownerDocument.defaultView ?? undefined;
     this.#minThumbSize = positive(options.minThumbSize, 30);
+    this.#local = options.trackHost !== undefined;
     if (options.installStyles !== false) {
-      installDirectScrollbarStyles(options.scrollElement.ownerDocument);
+      const root = options.trackHost?.getRootNode();
+      installDirectScrollbarStyles(root && "host" in root ? root as ShadowRoot : options.scrollElement.ownerDocument);
     }
     this.#track = options.scrollElement.ownerDocument.createElement("div");
-    this.#track.className = "jot-direct-scrollbar";
+    this.#track.className = this.#local ? "jot-direct-scrollbar jot-direct-scrollbar--local" : "jot-direct-scrollbar";
     this.#track.setAttribute("role", "scrollbar");
     this.#track.setAttribute("aria-orientation", "vertical");
-    this.#track.setAttribute("aria-label", "垂直滚动条");
+    this.#track.setAttribute("aria-label", options.label ?? "垂直滚动条");
     this.#track.tabIndex = 0;
     if (options.scrollElement.id !== "") {
       this.#track.setAttribute("aria-controls", options.scrollElement.id);
@@ -71,7 +77,7 @@ export class DirectScrollbar {
     this.#thumb.className = "jot-direct-scrollbar__thumb";
     this.#thumb.setAttribute("role", "presentation");
     this.#track.append(this.#thumb);
-    (options.scrollElement.ownerDocument.body ?? options.scrollElement.ownerDocument.documentElement)
+    (options.trackHost ?? options.scrollElement.ownerDocument.body ?? options.scrollElement.ownerDocument.documentElement)
       .append(this.#track);
     options.scrollElement.classList.add("jot-direct-scrollbar-host");
     options.scrollElement.addEventListener("scroll", this.#onScroll, { passive: true });
@@ -247,27 +253,25 @@ export class DirectScrollbar {
       this.#track.style.display = "none";
       return;
     }
-    const root = this.#scrollElement.getBoundingClientRect();
-    const top = Math.max(0, root.top + 4);
-    const bottom = Math.min(this.#view?.innerHeight ?? root.bottom, root.bottom - 4);
-    const height = Math.max(0, bottom - top);
-    if (height <= 0) {
+    if (this.#scrollElement.clientHeight <= 8 || this.#scrollElement.scrollHeight - this.#scrollElement.clientHeight <= 1) {
       this.#track.style.display = "none";
       return;
     }
     // Measure the current track, not its previous frame (or a hidden zero
     // box). A viewport resize can change the visible track without resizing
     // the scroll element, so no later ResizeObserver callback is guaranteed.
-    this.#track.style.top = `${top}px`;
-    this.#track.style.left = `${Math.max(0, root.right - 16)}px`;
-    this.#track.style.height = `${height}px`;
-    this.#track.style.width = "12px";
+    if (!this.#local) {
+      const root = this.#scrollElement.getBoundingClientRect();
+      const top = Math.max(0, root.top + 4);
+      const bottom = Math.min(this.#view?.innerHeight ?? root.bottom, root.bottom - 4);
+      if (bottom <= top) { this.#track.style.display = "none"; return; }
+      this.#track.style.top = `${top}px`;
+      this.#track.style.left = `${Math.max(0, root.right - 16)}px`;
+      this.#track.style.height = `${bottom - top}px`;
+      this.#track.style.width = "12px";
+    }
     this.#track.style.display = "block";
     const metrics = this.#metrics();
-    if (metrics.maxScroll <= 1) {
-      this.#track.style.display = "none";
-      return;
-    }
     const position = metrics.maxScroll === 0
       ? 0
       : metrics.scrollOffset / metrics.maxScroll * metrics.maxThumbOffset;
@@ -281,13 +285,14 @@ export class DirectScrollbar {
   }
 }
 
-export function installDirectScrollbarStyles(document: Document): HTMLStyleElement {
-  const existing = document.querySelector<HTMLStyleElement>("style[data-jot-direct-scrollbar]");
+export function installDirectScrollbarStyles(root: Document | ShadowRoot): HTMLStyleElement {
+  const existing = root.querySelector<HTMLStyleElement>("style[data-jot-direct-scrollbar]");
   if (existing !== null) return existing;
+  const document = "host" in root ? root.ownerDocument : root;
   const style = document.createElement("style");
   style.dataset["jotDirectScrollbar"] = "true";
   style.textContent = DIRECT_SCROLLBAR_CSS;
-  (document.head ?? document.documentElement).append(style);
+  ("host" in root ? root : document.head ?? document.documentElement).append(style);
   return style;
 }
 
@@ -299,6 +304,7 @@ export const DIRECT_SCROLLBAR_CSS = `
 .jot-direct-scrollbar{position:fixed;z-index:30;box-sizing:border-box;display:none;padding:2px;
   overflow:hidden;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:0;
   background:color-mix(in srgb,Canvas 70%,transparent);touch-action:none;user-select:none}
+.jot-direct-scrollbar--local{position:absolute;inset:4px 4px 4px auto;width:12px}
 .jot-direct-scrollbar__thumb{box-sizing:border-box;width:100%;min-height:1px;border:1px solid currentColor;border-radius:0;
   background:color-mix(in srgb,currentColor 45%,transparent);cursor:grab;will-change:transform}
 .jot-direct-scrollbar__thumb:active{cursor:grabbing}
