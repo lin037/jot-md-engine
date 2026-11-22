@@ -22,6 +22,15 @@ try{
   await c.command('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
   const wait=(expr,timeout=30000)=>waitForEvaluation(c,expr,timeout);
   const frame=()=>c.evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+  // The native scroll limit is rounded. The text can be fully visible while
+  // a fraction of the empty leading on its line box extends past the pane.
+  const visibleText = `(line, pane) => {
+    if (!line) return false;
+    const range=line.ownerDocument.createRange();
+    range.selectNodeContents(line);
+    const text=range.getBoundingClientRect(), bounds=pane.getBoundingClientRect();
+    return text.height>0 && text.top>=bounds.top && text.bottom<=bounds.bottom;
+  }`;
   await wait(`document.readyState==='complete' && document.title==='Jot native component integration fixture'`);
   await c.evaluate(`(()=>{window.probe={stage:'starting',errors:[],held:[],holding:true};(async()=>{
     const {MarkdownEditor}=await import('/@fs${process.cwd()}/packages/editor/src/index.ts');
@@ -110,7 +119,30 @@ try{
     `a single track click directly reaches a distant window after analysis: ${JSON.stringify(confirmedJump)}`);
   for(const type of ['mousePressed','mouseReleased'])await c.command('Input.dispatchMouseEvent',{type,button:'left',clickCount:1,x:confirmedX,y:confirmed.track.bottom-4});
   await wait(`view.viewport.to===view.state.doc.length && view.scrollDOM.scrollTop>=view.scrollDOM.scrollHeight-view.scrollDOM.clientHeight-1`,60000);
-  await wait(`(()=>{const pane=view.scrollDOM.getBoundingClientRect();return [...view.contentDOM.querySelectorAll('.cm-line')].some(line=>{if(line.textContent!=='SCROLL_PROBE_END')return false;const row=line.getBoundingClientRect();return row.top>=pane.top&&row.bottom<=pane.bottom})})()`,60000);
+  try {
+    await wait(`(()=>{
+      const line=[...view.contentDOM.querySelectorAll('.cm-line')].find(node=>node.textContent==='SCROLL_PROBE_END');
+      return (${visibleText})(line,view.scrollDOM);
+    })()`,60000);
+  } catch (error) {
+    const geometry = await c.evaluate(`(()=>{
+      const pane=view.scrollDOM, bounds=pane.getBoundingClientRect();
+      const rows=[...view.contentDOM.querySelectorAll('.cm-line')];
+      const row=rows.find(line=>line.textContent==='SCROLL_PROBE_END');
+      const vertical=rect=>rect&&{top:rect.top,bottom:rect.bottom};
+      const text=row?.ownerDocument.createRange();
+      if(text) text.selectNodeContents(row);
+      return {
+        viewport:view.viewport, visibleRanges:view.visibleRanges, length:view.state.doc.length,
+        scrollTop:pane.scrollTop, scrollHeight:pane.scrollHeight, clientHeight:pane.clientHeight,
+        bounds:vertical(bounds), row:vertical(row?.getBoundingClientRect()), text:vertical(text?.getBoundingClientRect()),
+        pageTail:rows.slice(-4).map(line=>line.textContent.slice(0,80)),
+        endCaret:vertical(view.coordsAtPos(view.state.doc.length)), live:editor.livePreview.snapshot, errors:probe.errors,
+      };
+    })()`).catch(cause => ({ captureError: String(cause) }));
+    console.error('Scrollbar end geometry', JSON.stringify(geometry));
+    throw error;
+  }
   const confirmedBottom=await snapshot();
   assert(confirmedBottom.sourceAt>confirmedBottom.doc*.95,'the confirmed scrollbar end reaches the real document end');
   for(const type of ['mousePressed','mouseReleased'])await c.command('Input.dispatchMouseEvent',{type,button:'left',clickCount:1,x:confirmedX,y:confirmed.track.top+4});
@@ -135,10 +167,10 @@ try{
     const style=getComputedStyle(track),top=rect.top+parseFloat(style.borderTopWidth)+parseFloat(style.paddingTop),
       bottom=rect.bottom-parseFloat(style.borderBottomWidth)-parseFloat(style.paddingBottom);
     const lastLine=pane.querySelector('.cm-content').cmTile.root.view.state.doc.toString().trimEnd().split('\\n').at(-1);
-    const end=[...pane.querySelectorAll('.cm-line')].find(n=>n.textContent===lastLine).getBoundingClientRect();
+    const end=[...pane.querySelectorAll('.cm-line')].find(n=>n.textContent===lastLine);
     return{scroll:pane.scrollTop,max:pane.scrollHeight-pane.clientHeight,thumbMax:Number(track.getAttribute('aria-valuemax')),thumbValue:Number(track.getAttribute('aria-valuenow')),thumbRatio:(thumb.top-top)/(bottom-top-thumb.height),
       thumbGap:bottom-thumb.bottom,trackX:rect.left+rect.width/2,trackBottom:bottom,paneX:bounds.left+20,paneY:bounds.top+100,
-      lastLineVisible:end.top>=bounds.top&&end.bottom<=bounds.bottom};
+      lastLineVisible:(${visibleText})(end,pane)};
   })()`);
   // 先让滚轮从确定的起点出发。导航恢复位置和图片测量都可能挪动初始视口。
   await c.evaluate("document.querySelector('.cm-scroller').scrollTop=0");

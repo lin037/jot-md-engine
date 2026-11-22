@@ -41,7 +41,28 @@ try {
   })()`);
   const baseline = await client.evaluate(`pageSamples[0]`);
   assert(baseline.height <= baseline.clientHeight + 1, 'the demo initially has no page overflow');
-  await client.evaluate(`(()=>{const v=document.querySelector('.cm-content').cmTile.root.view;v.focus();v.dispatch({changes:{from:0,to:v.state.doc.length,insert:${JSON.stringify(source)}},selection:{anchor:0}})})()`);
+  await client.evaluate(`(()=>{
+    // Reproduce a font notification while the edit's first root projection is in flight.
+    const postMessage=Worker.prototype.postMessage;
+    Worker.prototype.postMessage=function(message,...options){
+      const body=message.body;
+      if (body?.type==='project' && body.projection.revision>0 &&
+          body.projection.slices.some(slice=>slice.parentId==='0' && slice.window.type==='around-range')) {
+        Worker.prototype.postMessage=postMessage;
+        window.resumeRootProjection=()=>postMessage.call(this,message,...options);
+        return;
+      }
+      return postMessage.call(this,message,...options);
+    };
+    const view=document.querySelector('.cm-content').cmTile.root.view;
+    view.focus();
+    view.dispatch({changes:{from:0,to:view.state.doc.length,insert:${JSON.stringify(source)}},selection:{anchor:0}});
+  })()`);
+  await waitForEvaluation(client, `typeof window.resumeRootProjection==='function'`, 15_000);
+  await client.evaluate(`(()=>{
+    document.fonts.dispatchEvent(new Event('loadingdone'));
+    window.resumeRootProjection();
+  })()`);
   await waitForEvaluation(client, `document.querySelector('#status').textContent==='正文已确认' && !!document.querySelector('.jot-plugin-block[data-jot-plugin-state="ready"] svg')`, 60_000);
   const nodeFill = `getComputedStyle(document.querySelector('.jot-mermaid[data-jot-mermaid-theme="base"] .node rect')).fill`;
   assert.equal(await client.evaluate(nodeFill), 'rgb(232, 240, 232)', 'the light chart uses the Demo palette');

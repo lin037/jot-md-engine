@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { keyboardEventKey } from '../../support/browser-test-utils.mjs';
 
 /** Native component integration: after loading, every editing action is a real key. */
 export async function runKeyboardScenarios({ c, load, settle, confirmed, key, screenshot, results }) {
@@ -8,7 +9,7 @@ export async function runKeyboardScenarios({ c, load, settle, confirmed, key, sc
   async function press(name, { modifier = 0, shift = false } = {}) {
     const modifiers = modifier | (shift ? 8 : 0);
     const code = /^[a-z]$/i.test(name) ? `Key${name.toUpperCase()}` : name === ' ' ? 'Space' : name;
-    const key = shift && /^[a-z]$/i.test(name) ? name.toUpperCase() : name;
+    const key = keyboardEventKey(name, modifiers);
     const virtual = { Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ' ': 32, F3: 114, ArrowDown: 40, ArrowUp: 38 }[name]
       ?? (/^[a-z]$/i.test(name) ? name.toUpperCase().charCodeAt(0) : undefined);
     await c.command('Input.dispatchKeyEvent', { type: 'keyDown', key, code, modifiers,
@@ -140,6 +141,132 @@ export async function runKeyboardScenarios({ c, load, settle, confirmed, key, sc
   assert(await c.evaluate(`!document.querySelector('.cm-search input[name=replace]').disabled`), 'leaving read-only restores replacement controls');
   await press('Escape');
   results.push({ case: 'keyboard-search-readonly-invalid-regex' });
+
+  // 大文档防抖期间，面板外调用 replaceAll()/searchQuery 必须读取面板当前显示的新词。
+  const debouncedReplaceDoc = `red blue\n${'filler line\n'.repeat(4000)}`;
+  await fresh(debouncedReplaceDoc);
+  await c.evaluate(`(async () => {
+    await editor.openSearch();
+    editor.setSearchQuery({ search: 'red', replace: 'green' });
+  })()`);
+  const debouncedReplace = await c.evaluate(`(() => {
+    const input = document.querySelector('.cm-search input[name=search]');
+    input.value = 'blue';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    const queryBeforeReplace = editor.searchQuery.search;
+    const replaced = editor.replaceAll();
+    return {
+      queryBeforeReplace,
+      replaced,
+      firstLine: editor.value.split('\\n', 1)[0],
+    };
+  })()`);
+  await confirmed();
+  assert.equal(debouncedReplace.queryBeforeReplace, 'blue', 'public searchQuery reflects pending panel input during debounce');
+  assert.equal(debouncedReplace.replaced, true, 'external replaceAll executes against pending panel input');
+  assert.equal(debouncedReplace.firstLine, 'red green', 'external replaceAll replaces the live panel query rather than the stale pre-debounce query');
+  await press('Escape');
+  results.push({ case: 'keyboard-search-debounced-external-replace-all', ...debouncedReplace });
+
+  const replaceSource = 'replace needle here';
+  const multiline = 'left\nright';
+  await c.evaluate(`editor.commands.configureShortcuts({'search.replace-all':'F7'})`);
+  try {
+    for (const route of ['api', 'button', 'shortcut', 'edit-search', 'edit-replacement']) {
+      await fresh(replaceSource);
+      await c.evaluate(`(async()=>{
+        await editor.openSearch({replace:true});
+        editor.setSearchQuery({search:${JSON.stringify(route === 'edit-search' ? 'missing' : 'needle')},
+          replace:${JSON.stringify(multiline)},literal:true});
+      })()`);
+      if (route === 'api') {
+        assert(await c.evaluate('editor.replaceAll()'));
+      } else if (route === 'shortcut') {
+        await press('F7');
+      } else {
+        await c.evaluate(`(()=>{
+          const route=${JSON.stringify(route)};
+          if (route==='edit-search'||route==='edit-replacement') {
+            const field=document.querySelector(route==='edit-search'
+              ? '.cm-search input[name=search]' : '.cm-search input[name=replace]');
+            field.value=route==='edit-search'?'needle':'leftright';
+            field.dispatchEvent(new Event('input',{bubbles:true}));
+          }
+          document.querySelector('.cm-search button[name=replaceAll]').click();
+        })()`);
+      }
+      await confirmed();
+      const replacement = route === 'edit-replacement' ? 'leftright' : multiline;
+      assert.equal(await c.evaluate('editor.confirmedValue'), `replace ${replacement} here`, route + ' uses the intended replacement');
+    }
+  } finally {
+    await c.evaluate('editor.commands.resetShortcuts()');
+  }
+  results.push({ case: 'keyboard-search-api-replacement-parity' });
+
+  const searchTail = debouncedReplaceDoc + 'target needle';
+  for (const route of ['button', 'escape', 'api']) {
+    await fresh(searchTail);
+    const closed = await c.evaluate(`(async()=>{
+      await editor.openSearch();editor.setSearchQuery({search:'red'});
+      const search=document.querySelector('.cm-search input[name=search]');
+      search.value='blue';search.dispatchEvent(new Event('input',{bubbles:true}));
+      const route=${JSON.stringify(route)};
+      if(route==='button')document.querySelector('.cm-search button[name=close]').click();
+      else if(route==='escape')search.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+      else editor.input.closeSearch();
+      return !document.querySelector('.cm-search');
+    })()`);
+    await settle();
+    assert(closed, route + ' closes the search panel');
+    assert.equal(await c.evaluate('editor.searchQuery.search'), 'blue', route + ' preserves the last input immediately');
+    assert.equal(await c.evaluate('view.state.selection.main.head'), 0, route + ' cancels pending automatic navigation');
+    await c.evaluate('editor.openSearch()');
+    assert.equal(await c.evaluate(`document.querySelector('.cm-search input[name=search]').value`), 'blue');
+  }
+  results.push({ case: 'keyboard-search-close-retains-draft' });
+
+  await fresh(searchTail);
+  const announcement = await c.evaluate(`(async()=>{
+    await editor.openSearch();
+    editor.setSearchQuery({search:'needle'});
+    const found=editor.findNext();
+    const {from,to}=view.state.selection.main;
+    return {found,selected:view.state.sliceDoc(from,to),line:view.state.doc.lineAt(from).number,
+      text:view.dom.querySelector('.cm-announced[aria-live=polite]').textContent};
+  })()`);
+  assert(announcement.found);
+  assert.equal(announcement.selected, 'needle');
+  assert.equal(announcement.line, 4002);
+  assert.match(announcement.text, /target needle on line 4002/u);
+  await press('Escape');
+  results.push({ case: 'keyboard-large-search-announcement', ...announcement });
+
+  for (const length of [32_767, 32_768]) {
+    const first = 'first needle\n', last = '\nlast needle';
+    await fresh(first.padEnd(length - last.length, 'padding text\n') + last);
+    const navigation = await c.evaluate(`(async()=>{
+      const { observeSearchScroll } = await import('/@fs${process.cwd()}/packages/editor/tests/browser-support/search-navigation.ts');
+      const probe = observeSearchScroll(view);
+      try {
+        editor.setSearchQuery({ search: 'needle', literal: true });
+        const next = editor.findNext(), previous = editor.findPrevious();
+        return { next, previous, centered: probe.ranges };
+      } finally { probe.stop(); }
+    })()`);
+    assert.deepEqual(navigation, { next: true, previous: true, centered: [[6, 12], [length - 6, length]] },
+      `both search directions dispatch the host's centering effect at ${length} UTF-16 units`);
+  }
+  results.push({ case: 'search-host-scroll-both-sides-of-threshold' });
+
+  await fresh(('각'.normalize('NFD') + '각가').padEnd(40_000, 'padding text\n'), 3);
+  const wrapped = await c.evaluate(`(()=>{
+    editor.setSearchQuery({ search: '각가', literal: true });
+    const found = editor.findPrevious(), { from, to } = view.state.selection.main;
+    return { found, from, to };
+  })()`);
+  assert.deepEqual(wrapped, { found: true, from: 3, to: 5 }, 'previous wraps to the composed match');
+  results.push({ case: 'search-previous-wrap-normalized-hangul', ...wrapped });
 
   await fresh('keyboard text', 0, 8);
   await press('p', { modifier: editorMod, shift: true }); await settle();

@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict';
+import { keyboardEventKey } from '../../support/browser-test-utils.mjs';
 
 /** Shared component harness; only each scenario's initial caret is positioned directly. */
 export async function runListKeyboardScenarios({ c, load, settle, confirmed, screenshot, results }) {
   const mod = await c.evaluate(`/Mac|iPhone|iPad/.test(navigator.platform)`) ? 4 : 2;
-  async function press(key, modifiers = 0) {
-    const virtual = key === 'Enter' ? 13 : key === 'Backspace' ? 8 : key.length === 1 ? key.toUpperCase().charCodeAt(0) : undefined;
+  async function press(name, modifiers = 0) {
+    const key = keyboardEventKey(name, modifiers);
+    const code = name.length === 1 ? `Key${name.toUpperCase()}` : name;
+    const virtual = name === 'Enter' ? 13 : name === 'Backspace' ? 8 : name.length === 1 ? name.toUpperCase().charCodeAt(0) : undefined;
     await c.command('Input.dispatchKeyEvent', {
-      type: 'keyDown', key, code: key.length === 1 ? `Key${key.toUpperCase()}` : key,
+      type: 'keyDown', key, code,
       modifiers, windowsVirtualKeyCode: virtual,
     });
-    await c.command('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, modifiers, windowsVirtualKeyCode: virtual });
+    await c.command('Input.dispatchKeyEvent', { type: 'keyUp', key, code, modifiers, windowsVirtualKeyCode: virtual });
     await confirmed();
   }
   async function type(text) { await c.command('Input.insertText', { text }); await confirmed(); }

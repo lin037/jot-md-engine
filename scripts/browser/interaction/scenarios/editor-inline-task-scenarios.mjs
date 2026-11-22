@@ -25,7 +25,7 @@ export async function runInlineTaskScenarios({c,load,settle,confirmed,results}) 
  for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:'z',code:'KeyZ',windowsVirtualKeyCode:90,modifiers:mod});
  await confirmed();await c.evaluate('editor.livePreview.settled()');
  assert.equal(await c.evaluate('editor.value'),source,'one undo restores the original task marker');
- for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:'z',code:'KeyZ',windowsVirtualKeyCode:90,modifiers:mod|8});
+ for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:'Z',code:'KeyZ',windowsVirtualKeyCode:90,modifiers:mod|8});
  await confirmed();assert.equal(await c.evaluate('editor.value'),checked,'redo reapplies the task marker');
  await c.evaluate('editor.setReadOnly(true)');await settle();
  assert(await c.evaluate(`document.querySelector('.jot-live-preview-task-checkbox')?.disabled===true`),'read-only state is exposed on the checkbox');
@@ -69,7 +69,7 @@ export async function runInlineTaskScenarios({c,load,settle,confirmed,results}) 
   for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:'z',code:'KeyZ',windowsVirtualKeyCode:90,modifiers:mod});
   assert.equal(await c.evaluate('editor.value'),'新😀'+moving,'undo changes only the task while Worker is delayed');
   assert.equal(await c.evaluate(`document.querySelectorAll('.jot-live-preview-task-checkbox')[1]?.checked`),false,'undo updates the visible checkbox immediately');
-  for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:'z',code:'KeyZ',windowsVirtualKeyCode:90,modifiers:mod|8});
+  for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:'Z',code:'KeyZ',windowsVirtualKeyCode:90,modifiers:mod|8});
   assert.equal(await c.evaluate('editor.value'),movingExpected,'redo restores the task while Worker is delayed');
   assert.equal(await c.evaluate(`document.querySelectorAll('.jot-live-preview-task-checkbox')[1]?.checked`),true,'redo updates the visible checkbox immediately');
   assert((await c.evaluate('releaseTaskGate()'))>0,'the test held actual Worker messages');

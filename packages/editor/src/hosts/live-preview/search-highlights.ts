@@ -1,10 +1,28 @@
 import type { EditorView } from "@codemirror/view";
+import type { Text } from "@codemirror/state";
 import { getSearchQuery, searchPanelOpen } from "@codemirror/search";
 import { readDomSourceRange, type DomSourceRange } from "../../components/common/dom-position.js";
 import { logicalScrollLeft, setLogicalScrollLeft } from "../../components/common/render-utils.js";
+import {
+  chunkMayContainMatch,
+  isKnownSearchMiss,
+  selectionMatchesSearchQuery,
+} from "../shared/search-engine.js";
+import { sourceSnapshot } from "../shared/source-snapshot.js";
 import { nearestRevealDelta } from "./viewport.js";
 
 interface Paint { readonly matches: Range[]; readonly current: Range[]; readonly selection: Range[] }
+interface SearchAnchor {
+  readonly element: HTMLElement;
+  readonly range: DomSourceRange;
+  readonly text: boolean;
+}
+interface AnchorIndex {
+  readonly doc: Text;
+  readonly anchors: readonly SearchAnchor[];
+  readonly maxPrefixTo: readonly number[];
+  readonly windows: readonly DomSourceRange[];
+}
 const documentPaints = new WeakMap<Document, Map<object, Paint>>();
 const MATCH = "jot-search-match";
 const CURRENT = "jot-search-current";
@@ -71,6 +89,12 @@ export class LivePreviewSearchHighlights {
   readonly #onError: (error: unknown) => void;
   readonly #observer: MutationObserver;
   readonly #marked = new Set<HTMLElement>();
+  readonly #onScroll = (): void => {
+    this.#anchorsDirty = true;
+    this.schedule();
+  };
+  #anchorIndex: AnchorIndex | undefined;
+  #anchorsDirty = true;
   #frame: number | undefined;
   #disposed = false;
 
@@ -80,12 +104,16 @@ export class LivePreviewSearchHighlights {
     this.#isCurrent = isCurrent;
     this.#isSearching = isSearching;
     this.#onError = onError;
-    this.#observer = new MutationObserver(() => this.schedule());
+    this.#observer = new MutationObserver((records) => {
+      if (!hasWidgetMutation(records)) return;
+      this.#anchorsDirty = true;
+      this.schedule();
+    });
     this.#observer.observe(view.contentDOM, {
       childList: true, subtree: true, characterData: true, attributes: true,
       attributeFilter: ["data-jot-source-from", "data-jot-source-to", "data-jot-source-content-from", "data-jot-source-content-to"],
     });
-    view.scrollDOM.addEventListener("scroll", this.schedule, true);
+    view.scrollDOM.addEventListener("scroll", this.#onScroll, true);
   }
 
   readonly schedule = (): void => {
@@ -104,20 +132,19 @@ export class LivePreviewSearchHighlights {
 
   dispose(): void {
     this.#disposed = true;
+    this.#anchorIndex = undefined;
     if (this.#frame !== undefined) this.#view.dom.ownerDocument.defaultView?.cancelAnimationFrame(this.#frame);
     this.#observer.disconnect();
-    this.#view.scrollDOM.removeEventListener("scroll", this.schedule, true);
+    this.#view.scrollDOM.removeEventListener("scroll", this.#onScroll, true);
     this.clear();
   }
 
-  #paint(): void {
-    this.clear();
-    const { state, contentDOM } = this.#view;
-    const query = getSearchQuery(state);
-    const searching = query.valid && (searchPanelOpen(state) || this.#isSearching());
-    const selecting = this.#view.hasFocus && !this.#isSearching() && state.selection.ranges.some(range => !range.empty);
-    if (!this.#isCurrent() || (!searching && !selecting)) return;
-    const anchors: Array<{ element: HTMLElement; range: DomSourceRange; text: boolean }> = [];
+  #collectAnchors(state: EditorView["state"], contentDOM: HTMLElement): AnchorIndex {
+    const cached = this.#anchorIndex;
+    if (!this.#anchorsDirty && cached !== undefined && cached.doc === state.doc) {
+      return cached;
+    }
+    const anchors: SearchAnchor[] = [];
     const seen = new Set<Element>();
     for (const widget of contentDOM.querySelectorAll<HTMLElement>(".jot-live-preview-widget:not(.jot-live-preview-widget--geometry-gap)")) {
       const elements = [widget, ...widget.querySelectorAll<HTMLElement>(
@@ -136,14 +163,49 @@ export class LivePreviewSearchHighlights {
           source.from <= inner.from && inner.from <= inner.to && inner.to <= source.to;
         const range = validInner ? inner : source;
         const length = range.to - range.from;
-        const text = length > 0 && length <= MAX_SOURCE_UNITS &&
-          element.textContent?.length === length && state.doc.sliceString(range.from, range.to) === element.textContent;
         // Large sparse table roots are not search windows. Their mounted cell
         // anchors are bounded by the existing row/column virtualization.
         if (element.dataset["jotKind"] === "table" || length > MAX_SOURCE_UNITS) continue;
+        const content = length > 0 ? element.textContent : null;
+        const text = content !== null && content.length === length &&
+          state.doc.sliceString(range.from, range.to) === content;
         anchors.push({ element, range, text });
       }
     }
+    anchors.sort((a, b) => a.range.from - b.range.from || a.range.to - b.range.to);
+    const maxPrefixTo = new Array<number>(anchors.length);
+    let maxTo = -1;
+    for (let index = 0; index < anchors.length; index += 1) {
+      maxTo = Math.max(maxTo, anchors[index]!.range.to);
+      maxPrefixTo[index] = maxTo;
+    }
+    const lineWindows = anchors.map(({ range }) => ({
+      from: state.doc.lineAt(range.from).from,
+      to: state.doc.lineAt(range.to).to,
+    })).sort((a, b) => a.from - b.from);
+    const windows: DomSourceRange[] = [];
+    for (const window of lineWindows) {
+      const last = windows.at(-1);
+      if (last !== undefined && window.from <= last.to) {
+        windows[windows.length - 1] = { from: last.from, to: Math.max(last.to, window.to) };
+      } else windows.push(window);
+    }
+    const index: AnchorIndex = { doc: state.doc, anchors, maxPrefixTo, windows };
+    this.#anchorIndex = index;
+    this.#anchorsDirty = false;
+    return index;
+  }
+
+  #paint(): void {
+    this.clear();
+    const { state, contentDOM } = this.#view;
+    const query = getSearchQuery(state);
+    const searching = query.valid && (searchPanelOpen(state) || this.#isSearching());
+    const selecting = this.#view.hasFocus && !this.#isSearching() && state.selection.ranges.some(range => !range.empty);
+    if (!this.#isCurrent() || (!searching && !selecting)) return;
+    if (searching && !selecting && isKnownSearchMiss(state.doc, query)) return;
+    const { anchors, maxPrefixTo, windows } = this.#collectAnchors(state, contentDOM);
+    if (anchors.length === 0) return;
     const paint: Paint = { matches: [], current: [], selection: [] };
     const precise = supportsHighlights(this.#view.dom.ownerDocument);
     if (selecting) {
@@ -165,12 +227,13 @@ export class LivePreviewSearchHighlights {
         }
       }
     }
-    if (!searching) { publish(this.#view.dom.ownerDocument, this, paint); return; }
+    if (!searching || isKnownSearchMiss(state.doc, query)) {
+      publish(this.#view.dom.ownerDocument, this, paint);
+      return;
+    }
     const selection = state.selection.main;
     const paintMatch = (match: DomSourceRange, current: boolean): void => {
-      const candidates = anchors.filter(anchor => anchor.range.from <= match.from && match.to <= anchor.range.to)
-        .sort((a, b) => Number(b.text) - Number(a.text) || (a.range.to - a.range.from) - (b.range.to - b.range.from));
-      const anchor = candidates[0];
+      const anchor = findBestAnchor(anchors, maxPrefixTo, match);
       if (anchor === undefined) return;
       const range = anchor.text && precise
         ? textRange(anchor.element, match.from - anchor.range.from, match.to - anchor.range.from)
@@ -186,27 +249,16 @@ export class LivePreviewSearchHighlights {
     };
     // Background paint is bounded, but the selected hit must remain visible
     // even in a very long physical line or beyond the first 1,000 matches.
-    const selectedHit = selection.empty || !this.#isSearching() ? undefined
-      : query.getCursor(state, selection.from).next();
-    const paintedCurrent = selectedHit !== undefined && !selectedHit.done &&
-      selectedHit.value.from === selection.from && selectedHit.value.to === selection.to;
+    const paintedCurrent = !selection.empty && this.#isSearching() &&
+      selectionMatchesSearchQuery(state, query, selection.from, selection.to);
     if (paintedCurrent) paintMatch(selection, true);
-    const windows = anchors.map(({ range }) => ({
-      from: state.doc.lineAt(range.from).from,
-      to: state.doc.lineAt(range.to).to,
-    })).sort((a, b) => a.from - b.from);
-    const merged: Array<DomSourceRange> = [];
-    for (const window of windows) {
-      const last = merged.at(-1);
-      if (last !== undefined && window.from <= last.to) {
-        merged[merged.length - 1] = { from: last.from, to: Math.max(last.to, window.to) };
-      } else merged.push(window);
-    }
+    const source = sourceSnapshot(this.#view);
     let remaining = MAX_SOURCE_UNITS, hits = 0;
-    for (const window of merged) {
+    for (const window of windows) {
       if (remaining <= 0 || hits >= MAX_MATCHES) break;
       const to = Math.min(window.to, window.from + remaining);
       remaining -= to - window.from;
+      if (!chunkMayContainMatch(source, window.from, to, query)) continue;
       const cursor = query.getCursor(state, window.from, to);
       for (let next = cursor.next(); !next.done; next = cursor.next()) {
         const match = next.value;
@@ -218,6 +270,56 @@ export class LivePreviewSearchHighlights {
     }
     publish(this.#view.dom.ownerDocument, this, paint);
   }
+}
+
+function findBestAnchor(
+  anchors: readonly SearchAnchor[],
+  maxPrefixTo: readonly number[],
+  match: DomSourceRange,
+): SearchAnchor | undefined {
+  let low = 0;
+  let high = anchors.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (anchors[mid]!.range.from <= match.from) low = mid + 1;
+    else high = mid;
+  }
+  let best: SearchAnchor | undefined;
+  let bestLength = Number.POSITIVE_INFINITY;
+  for (let index = low - 1; index >= 0; index -= 1) {
+    if (maxPrefixTo[index]! < match.to) break;
+    const candidate = anchors[index]!;
+    if (candidate.range.to < match.to) continue;
+    const length = candidate.range.to - candidate.range.from;
+    if (best === undefined ||
+        (candidate.text !== best.text ? candidate.text : length < bestLength)) {
+      best = candidate;
+      bestLength = length;
+    }
+  }
+  return best;
+}
+
+function hasWidgetMutation(records: readonly MutationRecord[]): boolean {
+  for (const record of records) {
+    if (isInsideWidget(record.target)) return true;
+    for (const node of record.addedNodes) if (containsWidget(node)) return true;
+    for (const node of record.removedNodes) if (containsWidget(node)) return true;
+  }
+  return false;
+}
+
+function isInsideWidget(node: Node | null): boolean {
+  if (node === null) return false;
+  const element = node.nodeType === 1 ? node as Element : node.parentElement;
+  return element?.closest?.(".jot-live-preview-widget") != null;
+}
+
+function containsWidget(node: Node): boolean {
+  if (node.nodeType !== 1) return false;
+  const element = node as Element;
+  return element.classList.contains("jot-live-preview-widget") ||
+    element.querySelector(".jot-live-preview-widget") !== null;
 }
 
 function textRange(element: HTMLElement, from: number, to: number): Range | undefined {

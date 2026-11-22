@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 const suites = {
   demo: [
     ["demo/browser-smoke.mjs"],
+    ["demo/demo-paper-browser.mjs"],
     ["demo/editor-mermaid-viewport-browser.mjs"],
     ["demo/editor-mermaid-viewport-browser.mjs", "--preview"],
     ["demo/demo-large-mixed-browser.mjs"],

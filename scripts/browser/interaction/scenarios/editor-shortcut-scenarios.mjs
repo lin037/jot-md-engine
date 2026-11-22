@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { waitForEvaluation } from '../../support/browser-test-utils.mjs';
+import { keyboardEventKey, waitForEvaluation } from '../../support/browser-test-utils.mjs';
 
 export async function runShortcutScenarios({ c, load, confirmed, results }) {
   const platform = await c.evaluate('navigator.platform');
@@ -19,8 +19,7 @@ export async function runShortcutScenarios({ c, load, confirmed, results }) {
     const modifiers = parts.reduce((result, part) => result | flags[part], 0);
     const letter = /^[a-z]$/u.test(name);
     const digit = /^[0-9]$/u.test(name);
-    const shifted = Boolean(modifiers & 8);
-    const key = shifted && letter ? name.toUpperCase() : shifted && digit ? ')!@#$%^&*('[Number(name)] : name;
+    const key = keyboardEventKey(name, modifiers);
     const code = letter ? 'Key' + name.toUpperCase() : digit ? 'Digit' + name : name === '`' ? 'Backquote' : name;
     const windowsVirtualKeyCode = {
       Enter: 13, Escape: 27, Tab: 9, Backspace: 8, F3: 114,

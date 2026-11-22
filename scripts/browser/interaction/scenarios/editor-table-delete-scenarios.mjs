@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {spawn} from 'node:child_process';
-import {findChrome,waitForHttp,connectCdp,waitForEvaluation,stopProcess} from '../../support/browser-test-utils.mjs';
+import {findChrome,waitForHttp,connectCdp,waitForEvaluation,stopProcess,keyboardEventKey} from '../../support/browser-test-utils.mjs';
 
 export async function runTableDeleteScenarios({c,load,settle,confirmed,screenshot,results}) {
   const mod=await c.evaluate(`/Mac|iPhone|iPad/.test(navigator.platform)`) ? 4 : 2;
@@ -16,8 +16,9 @@ export async function runTableDeleteScenarios({c,load,settle,confirmed,screensho
   }
   async function undoRedo(redo=false){
     const modifiers=mod|(redo?8:0);
-    await c.command('Input.dispatchKeyEvent',{type:'keyDown',key:'z',code:'KeyZ',windowsVirtualKeyCode:90,modifiers});
-    await c.command('Input.dispatchKeyEvent',{type:'keyUp',key:'z',code:'KeyZ',modifiers});await confirmed();
+    const key=keyboardEventKey('z',modifiers);
+    await c.command('Input.dispatchKeyEvent',{type:'keyDown',key,code:'KeyZ',windowsVirtualKeyCode:90,modifiers});
+    await c.command('Input.dispatchKeyEvent',{type:'keyUp',key,code:'KeyZ',modifiers});await confirmed();
   }
   async function snapshot(){return c.evaluate(`(()=>{
     const table=[...document.querySelectorAll('.jot-table')].find(n=>n.getBoundingClientRect().height>0);
@@ -250,7 +251,7 @@ async function runLargeTableDelete({c,load,confirmed,results}, rowCount) {
   const mod=await c.evaluate('/Mac|iPhone|iPad/u.test(navigator.platform)')?4:2;
   for(const [modifiers, expectedSource] of [[mod,source],[mod|8,expected]]) {
     for(const type of ['keyDown','keyUp']) await c.command('Input.dispatchKeyEvent',{
-      type,key:'z',code:'KeyZ',windowsVirtualKeyCode:90,modifiers,
+      type,key:keyboardEventKey('z',modifiers),code:'KeyZ',windowsVirtualKeyCode:90,modifiers,
     });
     await confirmed();
     assert.equal(await c.evaluate('editor.confirmedValue'),expectedSource,'one history step restores the entire column');
