@@ -376,23 +376,12 @@ try {
   await run(async root => {
     f.binding.dispose();
     const { MarkdownEditor } = await import(root + "/packages/editor/src/index.ts");
-    const worker = f.worker2 = new Worker("/src/worker.ts", { type: "module" });
-    // Deliver foreground responses normally but hold background progress. This
-    // lets the first confirmed page and final index be checked independently.
-    const endpoint = new EventTarget();
-    endpoint.postMessage = message => worker.postMessage(message);
-    const held = [];
-    const forward = event => endpoint.dispatchEvent(new MessageEvent("message", { data: event.data }));
-    let hold = true;
-    worker.addEventListener("message", event => {
-      if (hold && event.data.body.type === "analysis-state-changed") held.push(event);
-      else forward(event);
-    });
-    f.releaseAnalysis = () => { hold = false; held.splice(0).forEach(forward); };
+    const worker = f.worker2 = new Worker(root + "/scripts/browser/support/outline-test-worker.mjs", { type: "module" });
+    worker.postMessage("pause-analysis");
     const editorRoot = document.body.appendChild(document.createElement("main"));
     editorRoot.style.cssText = "height:240px;width:650px";
     const next = f.editor2 = new MarkdownEditor({ root: editorRoot, mode: "source",
-      session: { endpoint, documentId: "second", generation: 1,
+      session: { endpoint: worker, documentId: "second", generation: 1,
         source: Array.from({ length: 3000 }, (_, i) => (i === 0 || i === 2999 ? "# " : "## ") + "另一个文档 " + i + "\n段落").join("\n"),
         syntaxProfile: { id: "default", version: 1, enabledExtensions: [] } } });
     next.subscribe(effect => {
@@ -404,12 +393,64 @@ try {
   }, root);
   await wait("f.editor2.session.adapter.analysis.state === 'pending' && f.labels()[0] === '另一个文档 0' && f.nav().getAttribute('aria-busy') === 'true'");
   assert.equal(await run(() => f.other.querySelector("button").textContent), "已关闭");
-  await run(() => f.releaseAnalysis());
+  await run(() => f.worker2.postMessage("resume-analysis"));
   await wait("f.nav().getAttribute('aria-busy') === 'false' && f.nav().scrollHeight === 3000 * 32");
   await run(() => f.buttons()[0].querySelector(".jot-outline__toggle").click());
   await wait("f.labels().join(',') === '另一个文档 0,另一个文档 2999'");
   assert.deepEqual(await run(() => f.secondBatch), { visible: 2, received: 2 });
   assert.equal(await run(() => f.editor2.revision), 0);
+  // Click once while the heading is known but its section end is still unparsed.
+  await client.command("Browser.grantPermissions", {
+    origin: new URL(url).origin, permissions: ["clipboardSanitizedWrite"],
+  });
+  for (const mode of ["source", "split"]) {
+    await run(async mode => {
+      await f.editor2.setMode(mode);
+      f.pasteSource = "# Start\n\n" + "Paragraph.\n\n".repeat(25) + "## Target\n\nbody";
+      f.editor2.setValue(f.pasteSource);
+    }, mode);
+    await wait("f.labels().join() === 'Start,Target' && f.nav().getAttribute('aria-busy') === 'false'");
+    await run(async () => {
+      f.worker2.postMessage("pause-analysis");
+      f.pasteSection = null;
+      f.stopPasteProbe = f.editor2.subscribe(effect => {
+        const heading = effect.renderPatch?.operations.find(op => op.axis === "heading-section")?.inserted[0];
+        if (heading) f.pasteSection = {
+          offset: heading.sourceRange.from,
+          complete: heading.attributes.find(attr => attr.name === "confirmed").value.value,
+        };
+      });
+      f.editor2.input.setSelection(f.pasteSource.length);
+      f.editor2.focus();
+      const text = "\n\nPasted paragraph.".repeat(15000).slice(0, 248944 - f.pasteSource.length);
+      await navigator.clipboard.writeText(text);
+      f.trustedPaste = false;
+      f.editor2.input.view.contentDOM.addEventListener("paste", event => { f.trustedPaste = event.isTrusted; }, { once: true });
+    });
+    await client.command("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "v", code: "KeyV", windowsVirtualKeyCode: 86, commands: ["Paste"] });
+    await client.command("Input.dispatchKeyEvent", { type: "keyUp", key: "v", code: "KeyV", windowsVirtualKeyCode: 86 });
+    await wait("f.trustedPaste && f.editor2.input.view.state.selection.main.head === 248944 && f.editor2.session.adapter.analysis.state === 'pending'");
+    const target = mode === "source" ? "Start" : "Target";
+    const point = await run(target => {
+      const row = f.buttons().find(button => button.textContent === target);
+      row.scrollIntoView({ block: "center" });
+      const rect = row.querySelector(".jot-outline__label").getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    }, target);
+    for (const type of ["mousePressed", "mouseReleased"]) {
+      await client.command("Input.dispatchMouseEvent", { ...point, type, button: "left", clickCount: 1 });
+    }
+    await wait("f.pasteSection !== null");
+    const offset = await run(target => f.pasteSource.indexOf(target === "Start" ? "# Start" : "## Target"), target);
+    assert.deepEqual(await run(() => f.pasteSection), { offset, complete: false }, "heading identity is confirmed before its section end");
+    assert.equal(await run(() => f.editor2.input.view.state.selection.main.head), offset, mode + " first click during analysis");
+    if (mode === "split") {
+      await wait(`Math.abs(f.editor2.surface.captureScrollAnchor().sourceOffset - ${offset}) <= 1`);
+    }
+    await run(() => { f.stopPasteProbe(); f.worker2.postMessage("resume-analysis"); });
+    await wait("f.editor2.session.adapter.analysis.state === 'complete'");
+    assert.equal(await run(() => f.editor2.input.view.state.selection.main.head), offset);
+  }
   await run(() => { f.editor.dispose(); f.worker.terminate(); });
   assert.equal(await run(() => !!f.nav() && !f.other.firstChild), true);
   await run(() => { f.editor2.dispose(); f.worker2.terminate(); });

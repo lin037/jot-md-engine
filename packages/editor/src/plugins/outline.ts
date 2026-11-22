@@ -265,24 +265,24 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
     const doc = view.state.doc;
     const current = () => !disposed && sequence === navSequence && editor.revision === revision && view.state.doc === doc && editor.mode === mode;
     let offset = Number(node.sourceRange.from);
-    let blockIndex = numberAttribute(node, "blockIndex")!;
+    let blockIndex = numberAttribute(node, "blockIndex");
     if (clicked.revision !== revision) {
       // Typing immediately before a click can shift all subsequent offsets. Ask
       // for the same heading by semantic ID so a moved or deleted row is safe.
       const effect = await editor.session.project([{ parentId: node.id, axis: "heading-section",
         window: { type: "index", from: 0, toExclusive: 1 }, maxDepth: 0 }]);
       const heading = effect.renderPatch?.operations[0]?.inserted[0];
-      const followingBlock = heading && numberAttribute(heading, "fromBlock");
-      if (!current() || !heading || followingBlock === undefined) return;
+      if (!current() || !heading) return;
       offset = Number(heading.sourceRange.from);
-      blockIndex = followingBlock - 1;
+      const followingBlock = numberAttribute(heading, "fromBlock");
+      blockIndex = followingBlock === undefined ? undefined : followingBlock - 1;
     }
     const revealed = editor.headingFolds.reveal(offset);
     if (!editor.inputPane.hidden) {
       editor.input.setSelection(offset);
       view.focus();
     }
-    if (!editor.surfacePane.hidden) {
+    if (!editor.surfacePane.hidden && blockIndex !== undefined) {
       if (revealed) await editor.surface.settled();
       if (!current()) return;
       editor.surface.applyScrollAnchor({ sourceOffset: offset, blockIndex, progress: 0 });

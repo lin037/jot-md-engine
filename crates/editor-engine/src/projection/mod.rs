@@ -167,6 +167,8 @@ fn heading_section_operation(
     let mut attrs = Vec::new();
     number(&mut attrs, "level", u32::from(level));
     boolean(&mut attrs, "confirmed", confirmed);
+    // The body's start follows the known heading, even while its end is unparsed.
+    number(&mut attrs, "fromBlock", u32_len(block.saturating_add(1)));
     let prefix_end = heading
         .source_range
         .to
@@ -206,7 +208,6 @@ fn heading_section_operation(
             "sectionRange",
             TextRange::new(from, to.max(from)),
         );
-        number(&mut attrs, "fromBlock", u32_len(block.saturating_add(1)));
         number(
             &mut attrs,
             "toBlock",
@@ -1340,10 +1341,24 @@ mod tests {
             attr(&section(&syntax, &text, headings[0].id, false), "confirmed"),
             Some(&RenderValue::Boolean(true))
         );
+        let partial = section(&syntax, &text, headings[2].id, false);
         assert_eq!(
-            attr(&section(&syntax, &text, headings[2].id, false), "confirmed"),
+            attr(&partial, "confirmed"),
             Some(&RenderValue::Boolean(false))
         );
+        let following_block = syntax
+            .root()
+            .children
+            .iter()
+            .position(|id| *id == headings[2].id)
+            .unwrap()
+            + 1;
+        assert_eq!(
+            attr(&partial, "fromBlock"),
+            Some(&RenderValue::Number(u32_len(following_block)))
+        );
+        assert_eq!(attr(&partial, "toBlock"), None);
+        assert_eq!(attr(&partial, "sectionRange"), None);
     }
 
     #[test]
