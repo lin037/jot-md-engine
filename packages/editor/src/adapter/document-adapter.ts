@@ -101,6 +101,10 @@ export class EditorDocumentAdapter {
     this.text = new Utf16TextModel(normalizeInsertedText(options.source));
   }
 
+  get documentId(): DocumentId {
+    return this.#documentId;
+  }
+
   get revision(): Revision {
     return this.#revision;
   }

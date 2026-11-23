@@ -7,7 +7,7 @@ Jot 是一个浏览器 Markdown 编辑器。CodeMirror 处理键盘输入、选�
 在应用目录中安装编辑器。下面用 Vite 和 TypeScript 举例。
 
 ```sh
-npm install https://github.com/lin037/jot-md-engine/releases/download/v0.3.0/jot-md-editor-0.3.0.tgz
+npm install https://github.com/lin037/jot-md-engine/releases/download/v0.3.1/jot-md-editor-0.3.1.tgz
 ```
 
 在 `index.html` 为编辑器留出高度，并加载主线程入口。
@@ -64,6 +64,17 @@ window.addEventListener("pagehide", (event) => {
 每个实例使用独立的 Worker。在单页应用里，把上例的清理操作放在组件卸载时执行。编辑命令要等 `editor.open()` 完成后再调用。
 
 保存 Markdown 时，先在输入法选词结束后调用 `await editor.input.settled()`，再读取 `editor.confirmedValue` 与 `editor.revision`。正文确认表示 Rust 已接受这次修改，后台语法解析期间就可以写入文件。是否已经保存取决于宿主写入的结果。
+
+## 多标签页的撤销与重做
+
+宿主可以在切换标签时保留当前编辑器，也可以用 `editor.captureHistory()` 只保存历史快照并释放编辑器及其 Worker。
+
+1. 完成输入法组字，等待 `editor.input.settled()`，保存正文。
+2. 调用 `editor.captureHistory()`，将返回值保存在该标签的内存状态中。没有可撤销或重做的修改时返回 `undefined`。保存完成后可调用 `editor.dispose()` 和 `worker.terminate()`。
+3. 回到标签时，创建新的编辑器和 Worker，将快照传给 `MarkdownEditorOptions.history`。只有文档 ID 和初始正文均匹配时才恢复历史。
+4. 用户关闭标签时，删除该标签保存的快照。如果标签仍持有编辑器，先保存正文，再释放编辑器和 Worker。
+
+应用决定标签的数量和会话的生命周期。历史快照仅供当前页面在内存中复用。需要还原选区、滚动位置或编辑模式时，宿主可与历史快照一起保存这些状态。
 
 ## 编辑模式
 

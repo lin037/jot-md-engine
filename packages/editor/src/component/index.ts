@@ -11,6 +11,7 @@ export type { MarkdownEditorPlugin, PluginCodeBlockRenderer } from "../plugins/r
 export { createHeadingFoldPlugin } from "../plugins/heading-fold.js";
 export type { HeadingFoldRange } from "../hosts/folding/heading-fold.js";
 export type { EditorSearchQuery } from "../hosts/source/search.js";
+export type { EditorHistorySnapshot } from "../hosts/source/codemirror-source.js";
 export {
   MARKDOWN_EDITOR_CSS,
   installMarkdownEditorStyles,

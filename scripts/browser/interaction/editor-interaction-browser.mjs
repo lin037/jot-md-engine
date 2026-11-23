@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { runNavigationScenarios } from './scenarios/editor-navigation-scenarios.mjs';
 import { runKeyboardScenarios } from './scenarios/editor-keyboard-scenarios.mjs';
 import { runShortcutScenarios } from './scenarios/editor-shortcut-scenarios.mjs';
+import { runHistoryScenarios } from './scenarios/editor-history-scenarios.mjs';
 import { runTreeEditScenarios } from './scenarios/editor-tree-edit-scenarios.mjs';
 import { runImeShellScenarios } from './scenarios/editor-ime-shell-scenarios.mjs';
 import { runListKeyboardScenarios } from './scenarios/editor-list-keyboard-scenarios.mjs';
@@ -274,6 +275,7 @@ try {
   await runThemeScenarios({c,results});
   await runPaddingGeometryScenarios({c,results});
  }
+ if (fullRun) await runHistoryScenarios({c,results});
  assert.deepEqual(await c.evaluate('errors'),[]);
  writeFileSync(resolve(output,'report.json'),JSON.stringify(results,null,2));
  console.log('Interaction browser checks passed');

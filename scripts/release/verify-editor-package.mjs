@@ -53,7 +53,7 @@ try {
   writeFileSync(resolve(consumer, "consumer.ts"), `
 ${entries.filter(entry => !entry.endsWith(".css")).map((entry, i) =>
   `import type * as PublicEntry${i} from ${JSON.stringify(entry)};`).join("\n")}
-import { MarkdownEditor, mountShortcutSettings, type EditorLayoutStyle, type EditorTheme, type MarkdownEditorOptions } from "@jot-md/editor";
+import { MarkdownEditor, mountShortcutSettings, type EditorHistorySnapshot, type EditorLayoutStyle, type EditorTheme, type MarkdownEditorOptions } from "@jot-md/editor";
 import { EditorDocumentSession, type AdapterEffect } from "@jot-md/editor/adapter";
 import { EditorCommandRegistry } from "@jot-md/editor/commands";
 import { TABLE_COMMAND } from "@jot-md/editor/table";
@@ -79,10 +79,15 @@ const theme: EditorTheme = { colors: { text: "#222", selection: null }, layout }
 const setTheme = (editor: MarkdownEditor): Promise<void> => editor.setTheme(theme);
 const ownsProjection = (session: EditorDocumentSession, effect: AdapterEffect, owner: symbol): boolean => session.ownsProjection(effect, owner);
 const initialTheme: EditorTheme | undefined = options.theme;
+function reopenEditor(editor: MarkdownEditor, options: MarkdownEditorOptions): MarkdownEditor {
+  const history: EditorHistorySnapshot | undefined = editor.captureHistory();
+  return new MarkdownEditor({ ...options, history });
+}
 void layout;
 void setTheme;
 void ownsProjection;
 void initialTheme;
+void reopenEditor;
 void mountShortcutSettings;
 void editorConstructor;
 void workerBootstrap;

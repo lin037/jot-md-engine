@@ -2,10 +2,14 @@ import { sourceSnapshot } from "../shared/source-snapshot.js";
 import {
   defaultKeymap,
   history,
+  historyField,
   historyKeymap,
   indentWithTab,
+  isolateHistory,
   redo,
+  redoDepth,
   undo,
+  undoDepth,
 } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { ParseContext } from "@codemirror/language";
@@ -21,6 +25,7 @@ import {
 import { EditorView, keymap, type ViewUpdate } from "@codemirror/view";
 
 import type {
+  DocumentId,
   EditorSelection,
   HistoryIntent,
   TextEdit,
@@ -63,6 +68,20 @@ const LARGE_NATIVE_INSERT_UNITS = 16_384;
 // only subsequent parses use the smaller cache.
 const MAX_MARKDOWN_REUSE_FRAGMENTS = 8;
 
+declare const historySnapshotBrand: unique symbol;
+
+/** In-memory undo and redo history for a single document. */
+export interface EditorHistorySnapshot {
+  readonly [historySnapshotBrand]: never;
+}
+
+const capturedHistories = new WeakMap<EditorHistorySnapshot, {
+  readonly documentId: DocumentId;
+  readonly source: string;
+  readonly history: unknown;
+}>();
+const historyInitializer = new Compartment();
+
 export interface CodeMirrorSourceOptions {
   readonly root: HTMLElement;
   readonly session: EditorDocumentSession;
@@ -70,6 +89,7 @@ export interface CodeMirrorSourceOptions {
   readonly extensions?: readonly Extension[];
   readonly lineWrapping?: boolean;
   readonly readOnly?: boolean;
+  readonly history?: EditorHistorySnapshot | undefined;
   /** 未传入时使用 MarkdownEditor 的内置表格命令与快捷键。 */
   readonly commands?: EditorCommandRegistry;
   /** Host actions share the same command registry as source edit commands. */
@@ -114,7 +134,7 @@ interface DesiredInputState {
  */
 export class CodeMirrorSource {
   readonly view: EditorView;
-  readonly #options: CodeMirrorSourceOptions;
+  readonly #options: Omit<CodeMirrorSourceOptions, "history">;
   readonly #commands: EditorCommandRegistry;
   readonly #unsubscribe: () => void;
   readonly #unsubscribeCommands: () => void;
@@ -132,7 +152,7 @@ export class CodeMirrorSource {
   #pendingBase: string;
   #pendingChanges: ChangeSet;
 
-  constructor(options: CodeMirrorSourceOptions) {
+  constructor({ history: historySnapshot, ...options }: CodeMirrorSourceOptions) {
     this.#options = options;
     this.#commands = options.commands ?? createDefaultEditorCommandRegistry();
     const source = options.session.adapter.text.text;
@@ -216,10 +236,20 @@ export class CodeMirrorSource {
       ...(options.lineWrapping === false ? [] : [EditorView.lineWrapping]),
       ...(options.extensions ?? []),
     ];
-    this.view = new EditorView({
-      parent: options.root,
-      state: EditorState.create({ doc: source, extensions }),
-    });
+    const snapshot = historySnapshot && capturedHistories.get(historySnapshot);
+    const restoreHistory = snapshot?.documentId === options.session.adapter.documentId && snapshot.source === source;
+    if (restoreHistory) {
+      extensions.unshift(historyInitializer.of(historyField.init(() => snapshot.history)));
+    }
+    let state = EditorState.create({ doc: source, extensions });
+    if (restoreHistory) {
+      // Keep the restored field value without retaining the initializer and its snapshot.
+      state = state.update({
+        effects: historyInitializer.reconfigure([]),
+        annotations: isolateHistory.of("full"),
+      }).state;
+    }
+    this.view = new EditorView({ parent: options.root, state });
     this.#unsubscribe = options.session.subscribe((effect) => {
       // Analysis and projection effects never change confirmed source. A
       // full CM Text flatten/compare for each background slice turns opening
@@ -236,6 +266,20 @@ export class CodeMirrorSource {
 
   get value(): string {
     return sourceSnapshot(this.view);
+  }
+
+  /** Capture the undo and redo stacks against the current source text. */
+  captureHistory(): EditorHistorySnapshot | undefined {
+    this.#assertLive();
+    const { state } = this.view;
+    if (undoDepth(state) === 0 && redoDepth(state) === 0) return undefined;
+    const snapshot = Object.freeze({}) as EditorHistorySnapshot;
+    capturedHistories.set(snapshot, {
+      documentId: this.#options.session.adapter.documentId,
+      source: this.value,
+      history: state.field(historyField),
+    });
+    return snapshot;
   }
 
   get commands(): EditorCommandRegistry {
