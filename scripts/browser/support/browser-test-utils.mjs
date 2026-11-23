@@ -1,5 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { once } from "node:events";
+import { join } from "node:path";
 
 // CDP takes KeyboardEvent.key as supplied. Encode the shifted US key value
 // separately from the physical code so shortcuts work on every runner.
@@ -38,6 +39,36 @@ export async function waitForHttp(url, timeout) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`timed out waiting for ${url}`);
+}
+
+export async function waitForChromePage(chrome, profile, debugPort, url, timeout) {
+  const portFile = join(profile, "DevToolsActivePort");
+  const target = new URL(url).href;
+  let stderr = "";
+  let launchError;
+  chrome.stderr?.on("data", (chunk) => { stderr = (stderr + chunk.toString()).slice(-4096); });
+  chrome.once("error", (error) => { launchError = error; });
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (launchError || chrome.exitCode !== null || chrome.signalCode !== null) break;
+    // When Chrome selects its own port, the file belongs to this test's profile.
+    const port = debugPort || (existsSync(portFile) ? Number.parseInt(readFileSync(portFile, "utf8"), 10) : 0);
+    if (port) {
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(1_000) });
+        if (response.ok) {
+          const pages = await response.json();
+          const page = pages.find((entry) => entry.type === "page" && entry.url === target);
+          if (page?.webSocketDebuggerUrl) return page.webSocketDebuggerUrl;
+        }
+      } catch {
+        // Chrome has not exposed the requested page yet.
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const status = launchError?.message ?? chrome.signalCode ?? chrome.exitCode ?? "startup timed out";
+  throw new Error(`Chrome did not expose the requested page: ${status}\n${stderr.trim()}`, { cause: launchError });
 }
 
 export async function connectCdp(url) {

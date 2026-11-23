@@ -5,19 +5,18 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { connectCdp, findChrome, keyboardEventKey, stopProcess, waitForEvaluation, waitForHttp } from '../support/browser-test-utils.mjs';
+import { connectCdp, findChrome, keyboardEventKey, stopProcess, waitForChromePage, waitForEvaluation, waitForHttp } from '../support/browser-test-utils.mjs';
 
-const port=Number(process.env.JOT_STRUCTURAL_PORT??4311),debugPort=Number(process.env.JOT_STRUCTURAL_DEBUG_PORT??9511);
+const port=Number(process.env.JOT_STRUCTURAL_PORT??4311),debugPort=Number(process.env.JOT_STRUCTURAL_DEBUG_PORT??0);
 const profile=mkdtempSync(resolve(tmpdir(),'jot-structural-browser-'));
 let server,chrome,c;
 const errors=[];
 try {
   server=spawn(resolve('node_modules/.bin/vite'),['--config','apps/demo/vite.config.mjs','--port',String(port),'--strictPort'],{stdio:'ignore'});
   await waitForHttp(`http://127.0.0.1:${port}/`,15000);
-  chrome=spawn(process.env.CHROME_BIN??findChrome(),['--headless=new','--no-first-run','--disable-background-networking',`--remote-debugging-port=${debugPort}`,`--user-data-dir=${profile}`,`http://127.0.0.1:${port}/@fs${process.cwd()}/scripts/browser/support/editor-browser-fixture.html`],{stdio:'ignore'});
-  await waitForHttp(`http://127.0.0.1:${debugPort}/json/version`,15000);
-  const pages=await fetch(`http://127.0.0.1:${debugPort}/json/list`).then(r=>r.json());
-  c=await connectCdp(pages.find(p=>p.type==='page'&&p.url.includes(`:${port}`)).webSocketDebuggerUrl);
+  const fixture=`http://127.0.0.1:${port}/@fs${process.cwd()}/scripts/browser/support/editor-browser-fixture.html`;
+  chrome=spawn(process.env.CHROME_BIN??findChrome(),['--headless=new','--no-first-run','--disable-background-networking',`--remote-debugging-port=${debugPort}`,`--user-data-dir=${profile}`,fixture],{stdio:['ignore','ignore','pipe']});
+  c=await connectCdp(await waitForChromePage(chrome,profile,debugPort,fixture,15000));
   c.socket.addEventListener('message',event=>{const message=JSON.parse(String(event.data));if(message.method==='Runtime.exceptionThrown')errors.push(message.params.exceptionDetails.exception?.description??message.params.exceptionDetails.text)});
   await c.command('Runtime.enable');
   await c.command('Emulation.setDeviceMetricsOverride',{width:1300,height:900,deviceScaleFactor:1,mobile:false});
