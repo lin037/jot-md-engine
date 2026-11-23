@@ -3,6 +3,8 @@ import type { EditorCommandResult, EditorCommandContext } from "../core/commands
 import { range } from "../adapter/text-model.js";
 import { numberAttribute, stringAttribute } from "./common/dom-renderer.js";
 
+const listMarkerPrefix = /^([\t ]*)([-+*]|[0-9]{1,9}[.)])(?=[\t ])/u;
+
 export interface ListEnterContext extends EditorCommandContext {
   /** Current-revision Rust ListItem, never a source-prefix classification. */
   readonly item: RenderNode;
@@ -138,6 +140,65 @@ function listResult(from: number, to: number, insert: string, action: string, fo
   };
 }
 
+export interface OrderedListLine {
+  readonly from: number;
+  readonly digitsFrom: number;
+  readonly digitsTo: number;
+  readonly indent: number;
+  readonly number: number;
+  readonly delimiter: "." | ")";
+}
+
+/** Read a marker from a confirmed list line or the exact output of list Enter. */
+export function orderedListLine(source: string, from: number, to: number): OrderedListLine | undefined {
+  const prefix = listMarkerPrefix.exec(source.slice(from, Math.min(to, from + 512)));
+  const marker = prefix?.[2];
+  const delimiter = marker?.at(-1);
+  if (prefix === null || marker === undefined || (delimiter !== "." && delimiter !== ")")) return undefined;
+  const whitespace = prefix[1]!;
+  let indent = 0;
+  for (const character of whitespace) indent += character === "\t" ? 4 - indent % 4 : 1;
+  const digitsFrom = from + whitespace.length;
+  return { from, digitsFrom, digitsTo: digitsFrom + marker.length - 1,
+    indent, number: Number(marker.slice(0, -1)), delimiter };
+}
+
+/** Number the moved row from its destination siblings, without rewriting other items. */
+export function movedOrderedListNumber(
+  source: string, line: OrderedListLine, targetIndent: number, preceding: readonly RenderNode[],
+): number | undefined {
+  if (targetIndent === line.indent) return undefined;
+  const deeper = targetIndent > line.indent;
+  let boundary = line.from;
+  let previousChild: RenderNode | undefined;
+  for (let index = preceding.length - 1; index >= 0; index -= 1) {
+    const node = preceding[index]!;
+    const from = Number(node.sourceRange.from), to = Number(node.sourceRange.to);
+    if (from >= line.from) continue;
+    const indent = numberAttribute(node, "indentColumns");
+    if (node.kind !== "list-item" || node.mode === "source" || indent === undefined ||
+        to !== boundary - 1 || source[to] !== "\n" ||
+        (node.childCount === 0 && source[to - 1] !== " " && source[to - 1] !== "\t")) return undefined;
+    if (deeper) {
+      if (indent < line.indent) return undefined;
+      if (indent === line.indent) {
+        if (previousChild === undefined) return 1;
+        const number = numberAttribute(previousChild, "number");
+        return number !== undefined && stringAttribute(previousChild, "delimiter") === line.delimiter
+          ? Math.min(999_999_999, number + 1) : 1;
+      }
+      if (indent === targetIndent && previousChild === undefined) previousChild = node;
+    } else if (indent < line.indent) {
+      if (indent !== targetIndent) return undefined;
+      const number = numberAttribute(node, "number");
+      return number !== undefined && stringAttribute(node, "delimiter") === line.delimiter
+        ? Math.min(999_999_999, number + 1) : 1;
+    }
+    boundary = from;
+  }
+  return undefined;
+}
+
 /** Read an edit prefix only after Rust has supplied the ListItem identity. */
 function listPrefix(source: string, from: number, to: number, item: RenderNode): {
   readonly indent: string;
@@ -147,7 +208,7 @@ function listPrefix(source: string, from: number, to: number, item: RenderNode):
   readonly nextContentIndent: number;
 } | undefined {
   const line = source.slice(from, to);
-  const prefix = /^([\t ]*)([-+*]|[0-9]{1,9}[.)])(?=$|[\t ])/u.exec(line);
+  const prefix = listMarkerPrefix.exec(line);
   if (prefix === null) return undefined;
   const indent = prefix[1]!;
   const marker = prefix[2]!;
@@ -173,8 +234,7 @@ function listPrefix(source: string, from: number, to: number, item: RenderNode):
   for (; contentEnd < line.length && /[\t ]/u.test(line[contentEnd]!); contentEnd += 1) {
     contentIndent += line[contentEnd] === "\t" ? 4 - contentIndent % 4 : 1;
   }
-  if (contentEnd === prefix[0].length) contentIndent += 1;
-  else if (contentIndent - markerColumn > 4) {
+  if (contentIndent - markerColumn > 4) {
     contentEnd = prefix[0].length + 1;
     contentIndent = markerColumn + (line[prefix[0].length] === "\t" ? 4 - markerColumn % 4 : 1);
   }

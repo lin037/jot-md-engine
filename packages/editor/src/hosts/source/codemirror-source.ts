@@ -7,7 +7,7 @@ import {
   redo,
   undo,
 } from "@codemirror/commands";
-import { markdown, markdownKeymap } from "@codemirror/lang-markdown";
+import { markdown } from "@codemirror/lang-markdown";
 import { ParseContext } from "@codemirror/language";
 import {
   Annotation,
@@ -35,6 +35,7 @@ import {
 } from "../../adapter/index.js";
 import { createDefaultEditorCommandRegistry } from "../../components/commands.js";
 import { EditorCommandRegistry, type TableInsertionSize } from "../../core/commands/index.js";
+import { markdownEditingKeymap } from "./markdown-keymap.js";
 import { engineSynchronization, requestedOrigin, sourceReadOnlyFilter,
   synchronizedFromEngine } from "./synchronization.js";
 import {
@@ -156,7 +157,7 @@ export class CodeMirrorSource {
       sourceSearch(),
       this.#commandBindings.of(keymap.of(this.#commandKeymap())),
       keymap.of([
-        ...markdownKeymap,
+        ...markdownEditingKeymap,
         indentWithTab,
         ...defaultKeymap,
         // Document undo/redo belong to the configurable command registry.

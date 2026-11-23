@@ -1,7 +1,7 @@
-import { countColumn, type Text, type Transaction } from "@codemirror/state";
+import type { Text, Transaction } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
 import { quotePrefix } from "../../components/common/quote-prefix.js";
-import { listDisplayIndentColumns } from "../../layout/list-geometry.js";
+import { rebaseListIndent, setListIndentStyle } from "./list-indent.js";
 
 // The same invisible marker is used by confirmed and local presentations.
 class LeadingQuoteMarkerWidget extends WidgetType {
@@ -296,38 +296,21 @@ function resolveQuoteListIndent(
   change: { readonly from: number; readonly to: number; readonly inserted: string },
 ): OptimisticQuoteEdit | undefined {
   const row = quoteRowAt(decorations, oldLine.from);
-  if (row === undefined || !/\bjot-live-preview-list-item\b/u.test(String(row.decoration.spec.class ?? "")) ||
-      /[^ \t]/u.test(change.inserted)) return undefined;
+  if (row?.decoration.spec.attributes?.["data-jot-live-list-marker"] === undefined) return undefined;
   const quote = quoteMarkerAt(decorations, oldLine.from, row.owner);
   if (quote === undefined || quote.to - oldLine.from > 512) return undefined;
-  let list: { from: number; to: number; owner: string; decoration: Decoration } | undefined;
-  decorations.between(quote.to, quote.to, (from, to, decoration) => {
-    const spec = decoration.spec;
-    if (from === quote.to && to > from && to <= oldLine.to && spec.jotLiveStructural === true &&
-        spec.jotLiveQuotePrefix !== true && typeof spec.jotLiveNode === "string" &&
-        /^[ \t]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]+|$)/u.test(transaction.startState.doc.sliceString(from, to))) {
-      list = { from, to, owner: spec.jotLiveNode, decoration };
-    }
-  });
-  if (list === undefined) return undefined;
-  const oldText = transaction.startState.doc.sliceString(list.from, list.to);
-  const oldIndent = /^[ \t]*/u.exec(oldText)?.[0] ?? "";
-  if (change.from < list.from || change.to > list.from + oldIndent.length) return undefined;
   const line = transaction.newDoc.lineAt(transaction.changes.mapPos(oldLine.from, -1));
   const head = transaction.newDoc.sliceString(line.from, Math.min(line.to, line.from + 512));
   const prefix = quotePrefix(head, 0, Number.POSITIVE_INFINITY);
   if (prefix?.depth !== row.depth) return undefined;
-  const quoteTo = line.from + prefix.to, listTo = transaction.changes.mapPos(list.to, 1);
-  if (quoteTo > listTo || listTo > line.to) return undefined;
-  const nextText = transaction.newDoc.sliceString(quoteTo, listTo);
-  const nextIndent = /^[ \t]*/u.exec(nextText)?.[0] ?? "";
-  if (nextText.slice(nextIndent.length) !== oldText.slice(oldIndent.length)) return undefined;
+  const quoteTo = line.from + prefix.to;
+  const list = rebaseListIndent(decorations, transaction, change, quote.to, oldLine.to, quoteTo, line.to);
+  if (list === undefined) return undefined;
   return { owner: row.owner, oldMarkerFrom: quote.from, oldMarkerTo: quote.to,
     markerFrom: line.from, markerTo: quoteTo, marker: quote.decoration,
-    structuralMarkers: [{ oldFrom: list.from, oldTo: list.to, owner: list.owner,
-      from: quoteTo, to: listTo, decoration: list.decoration }],
+    structuralMarkers: [list],
     rows: [{ row, from: line.from, depth: row.depth, open: row.open, close: row.close,
-      listIndent: listDisplayIndentColumns(countColumn(nextIndent, 4)) }] };
+      listIndent: list.columns }] };
 }
 
 /** Keep the confirmed quote geometry while a body becomes empty or nonempty. */
@@ -796,10 +779,9 @@ export function applyOptimisticQuoteEdits(
     attributes["data-jot-quote-close"] = String(update.close);
     if (update.markerOnly === true) attributes["data-jot-quote-marker-only"] = "true";
     else if (update.markerOnly === false) delete attributes["data-jot-quote-marker-only"];
-    const styles = (attributes["style"] ?? "").split(";").filter(value =>
-      value.length > 0 && !/^--jot-live-quote-(?:depth|open|close):/u.test(value.trim()) &&
-      !(update.listIndent !== undefined && /^--jot-live-list-indent:/u.test(value.trim())));
-    if (update.listIndent !== undefined && update.listIndent > 0) styles.push(`--jot-live-list-indent:${update.listIndent}ch`);
+    const style = attributes["style"] ?? "";
+    const styles = (update.listIndent === undefined ? style : setListIndentStyle(style, update.listIndent))
+      .split(";").filter(value => value.length > 0 && !/^--jot-live-quote-(?:depth|open|close):/u.test(value.trim()));
     styles.push(`--jot-live-quote-depth:${update.depth}`,
       `--jot-live-quote-open:${update.open}`, `--jot-live-quote-close:${update.close}`);
     attributes["style"] = styles.join(";");

@@ -1,5 +1,7 @@
 import { EditorView } from "@codemirror/view";
 
+const unprojectedBlankLine = ".cm-content.jot-live-preview-content > .cm-line:not([data-jot-live-node]):has(> :is(br:only-child,[data-jot-blank-text]))";
+
 /**
  * Live Preview 只保留 CodeMirror 宿主特有的规则。
  *
@@ -73,9 +75,7 @@ export const livePreviewTheme = EditorView.baseTheme({
     paddingBlockEnd: "var(--jot-live-preview-block-gap)",
     borderBlockEnd: "var(--jot-boundary-width) solid color-mix(in srgb, currentColor 18%, transparent)",
   },
-  // The public paragraph inset is also used by PreText's width model. Keep
-  // native paragraph rows aligned with semantic Preview paragraphs; nested
-  // list and quote rows retain their own component indentation.
+  // Keep native paragraphs aligned with their Preview counterparts.
   ".cm-content.jot-live-preview-content .cm-line.jot-live-preview-native-block--paragraph:not(.jot-live-preview-list-item):not(.jot-live-preview-native-block--block-quote)": {
     paddingInline: "var(--jot-paragraph-padding-x)",
   },
@@ -91,6 +91,7 @@ export const livePreviewTheme = EditorView.baseTheme({
     insetInlineStart: "var(--jot-live-list-effective-indent)",
     inlineSize: "max(0px, calc(var(--jot-live-list-marker-column) - .5em))",
     textAlign: "end",
+    fontVariantNumeric: "tabular-nums",
     whiteSpace: "pre",
     pointerEvents: "none",
   },
@@ -253,7 +254,9 @@ export const livePreviewTheme = EditorView.baseTheme({
     height: "0",
     verticalAlign: "baseline",
   },
-  ".cm-content.jot-live-preview-content .cm-line.jot-live-preview-blank-line": {
+  // CodeMirror gives a new empty physical row a lone BR before projection.
+  // Match the confirmed blank metrics on that native row from its first frame.
+  [`${unprojectedBlankLine}, .cm-content.jot-live-preview-content .cm-line.jot-live-preview-blank-line`]: {
     minHeight: "var(--jot-blank-line-height)",
     lineHeight: "var(--jot-blank-line-height)",
     paddingBlock: "0",
@@ -261,7 +264,7 @@ export const livePreviewTheme = EditorView.baseTheme({
   },
   // A root blank row is the same editing position as the paragraph that the
   // first input creates. Do not retain CM's default 6px line inset here.
-  ".cm-content.jot-live-preview-content .cm-line.jot-live-preview-blank-line:not(.jot-live-preview-native-block--block-quote):not(.jot-live-preview-list-item):not(.jot-live-preview-source-fenced-code):not(.jot-live-preview-source-math-block)": {
+  [`${unprojectedBlankLine}, .cm-content.jot-live-preview-content .cm-line.jot-live-preview-blank-line:not(.jot-live-preview-native-block--block-quote):not(.jot-live-preview-list-item):not(.jot-live-preview-source-fenced-code):not(.jot-live-preview-source-math-block)`]: {
     paddingInline: "var(--jot-paragraph-padding-x)",
   },
   // Closed math delimiters remain in the CodeMirror document but are not a

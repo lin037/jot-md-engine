@@ -45,7 +45,7 @@ try {
   };
   const key=async(name,modifiers=0)=>{
     const code=name===' '?'Space':/^[a-z]$/iu.test(name)?`Key${name.toUpperCase()}`:name;
-    const number={Enter:13,Backspace:8,Delete:46,z:90,' ':32}[name]??0;
+    const number={Enter:13,Backspace:8,Delete:46,Tab:9,z:90,' ':32}[name]??0;
     for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:keyboardEventKey(name,modifiers),code,windowsVirtualKeyCode:number,modifiers,...(type==='keyDown'&&name===' '?{text:' '}: {})});
   };
   const snapshot=()=>c.evaluate(`(()=>{
@@ -71,6 +71,31 @@ try {
     close(pending.caret.left,after.caret.left,'caret horizontal position');
     close(pending.caret.top,after.caret.top,'caret vertical position');
   };
+  for (const marker of ['-', '10.']) {
+    const source='Alpha\n\n'+marker+' body\n\nTail', start=source.indexOf(marker);
+    await load(source,source.indexOf('body')+4);
+    for (const [modifiers, expected] of [[0,source.slice(0,start)+'  '+source.slice(start)],[8,source]]) {
+      const {pending,after}=await capture(()=>key('Tab',modifiers));
+      assert.equal(after.value,expected);
+      compareCaret(pending,after);
+      const row=pending.rows.find(line=>line.from===start);
+      assert(row?.classes.includes('jot-live-preview-list-item'),'indentation keeps the confirmed list skin');
+      assert.equal(row.visible,'body','indentation keeps the source prefix hidden');
+    }
+  }
+  await load('9) Parent','9) Parent'.length);
+  const child=await capture(async()=>{await key('Enter');await key('Tab')});
+  assert.equal(child.pending.value,'9) Parent\n  1) ','Tab into a new child resets the number without waiting for the Worker');
+  assert.equal(child.after.value,child.pending.value);
+  const parent=await capture(()=>key('Tab',8));
+  assert.equal(parent.pending.value,'9) Parent\n10) ','outdent resumes the parent numbering, including a wider marker');
+  compareCaret(parent.pending,parent.after);
+
+  const siblings='1. Parent\n  4. Child\n8. Move me';
+  await load(siblings,siblings.length);
+  const moved=await capture(()=>key('Tab'));
+  assert.equal(moved.pending.value,'1. Parent\n  4. Child\n  5. Move me');
+  compareCaret(moved.pending,moved.after);
   const compareQuote=(pending,after)=>{
     compareCaret(pending,after);
     const actual=pending.rows.filter(row=>row.raw.startsWith('>'));
@@ -321,6 +346,16 @@ try {
     const restored=await capture(()=>key('Backspace'),90000);
     assert.equal(restored.pending.value,large);compareCode(restored.pending,restored.after);
     console.log('PASS: 9,999-to-10,000 code line transition retains gutter geometry');
+  }
+
+  await c.evaluate('editor.setTheme({layout:{metrics:{blankLineHeight:33,paragraphPaddingX:14,blockGap:9,boundaryWidth:1}}})');
+  for (const whitespace of ['', '  ']) {
+    await load('Alpha\n'+whitespace+'\nTail',6+whitespace.length);
+    const {pending,after}=await capture(()=>key('Enter'));
+    assert.equal(after.value,'Alpha\n\n'+whitespace+'\nTail');
+    compareCaret(pending,after);
+    assert.deepEqual(pending.rows.map(row=>[row.padding,row.top,row.height]),
+      after.rows.map(row=>[row.padding,row.top,row.height]),'empty physical lines use the theme metrics before confirmation');
   }
 
   assert.deepEqual(await c.evaluate('editorErrors'),[]);assert.deepEqual(errors,[]);
