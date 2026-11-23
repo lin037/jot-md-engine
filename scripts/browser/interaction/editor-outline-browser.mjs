@@ -386,7 +386,10 @@ try {
         syntaxProfile: { id: "default", version: 1, enabledExtensions: [] } } });
     next.subscribe(effect => {
       const outline = effect.renderPatch?.operations.find(op => op.axis === "heading-outline");
-      if (outline) f.secondBatch = { visible: outline.totalChildren, received: outline.inserted.length };
+      if (outline) {
+        f.secondBatch = { visible: outline.totalChildren, received: outline.inserted.length };
+        f.secondOutlineRevision = effect.renderPatch.documentRevision;
+      }
     });
     f.mountOutline(f.host, next);
     await next.open();
@@ -409,7 +412,8 @@ try {
       f.pasteSource = "# Start\n\n" + "Paragraph.\n\n".repeat(25) + "## Target\n\nbody";
       f.editor2.setValue(f.pasteSource);
     }, mode);
-    await wait("f.labels().join() === 'Start,Target' && f.nav().getAttribute('aria-busy') === 'false'");
+    // Replacing the document can change heading IDs while preserving both labels.
+    await wait("f.editor2.confirmedValue === f.pasteSource && f.secondOutlineRevision === f.editor2.revision && f.labels().join() === 'Start,Target' && f.nav().getAttribute('aria-busy') === 'false'");
     await run(async () => {
       f.worker2.postMessage("pause-analysis");
       f.pasteSection = null;

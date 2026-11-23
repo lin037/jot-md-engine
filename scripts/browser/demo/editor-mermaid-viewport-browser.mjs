@@ -26,6 +26,9 @@ try {
   client = await connectCdp(pages.find((page) => page.type === 'page' && page.url.includes(`:${port}`)).webSocketDebuggerUrl);
   client.socket.addEventListener('message', (event) => { const message = JSON.parse(String(event.data)); if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.text); });
   await client.command('Runtime.enable');
+  // This case keeps the caret in Mermaid source while changing its theme.
+  // Keep the CDP page focused independently of other browser sessions.
+  await client.command('Emulation.setFocusEmulationEnabled', { enabled: true });
   await client.command('Emulation.setDeviceMetricsOverride', { width: 1200, height: 850, deviceScaleFactor: 1, mobile: false });
   await waitForEvaluation(client, `location.origin==='http://127.0.0.1:${port}' && document.querySelector('#mode')?.disabled===false`, 30_000);
   await client.evaluate(`(async()=>{
@@ -139,20 +142,45 @@ try {
   const longBefore = await client.evaluate(`(()=>{const v=document.querySelector('.cm-content').cmTile.root.view,w=document.querySelector('.jot-live-preview-code-scroll'),line=[...w.querySelectorAll('.jot-code-line')].find(n=>n.textContent.includes('SA[')),r=line.getBoundingClientRect(),p=w.getBoundingClientRect(),e=document.scrollingElement;return{actual:line.textContent,expected:v.state.doc.lineAt(v.posAtDOM(line,0)).text,scrollWidth:w.scrollWidth,clientWidth:w.clientWidth,outerOverflow:e.scrollWidth-e.clientWidth,point:{x:p.left+p.width/2,y:(r.top+r.bottom)/2}}})()`);
   assert.equal(longBefore.actual, longBefore.expected, 'a long graph source line is painted once');
   assert(longBefore.scrollWidth > longBefore.clientWidth + 100 && longBefore.outerOverflow <= 1, 'the long source scrolls within its code block');
+  const scrolledSource = `document.querySelector('.cm-content')?.cmTile?.root?.view?.hasFocus === true &&
+    document.querySelector('.jot-live-preview-code-scroll')?.scrollLeft > 100`;
+  const codeBackgroundPoints = `(()=>{
+    if (!(${scrolledSource})) return null;
+    const wrapper = document.querySelector('.jot-live-preview-code-scroll');
+    const {left,right} = wrapper.getBoundingClientRect();
+    return [...wrapper.querySelectorAll('.jot-live-preview-code-boundary')].map(line=>{
+      const {top,bottom} = line.getBoundingClientRect();
+      return [left+20,right-20].map(x=>[Math.round(x),Math.round((top+bottom)/2)]);
+    });
+  })()`;
+  const sampleCodeBackground = async (filename) => {
+    const points = await client.evaluate(codeBackgroundPoints);
+    assert(points?.length === 2, 'the focused and scrolled source has both fence boundaries before capture');
+    const shot = await client.command('Page.captureScreenshot', { format: 'png' });
+    assert.deepEqual(await client.evaluate(codeBackgroundPoints), points, 'the focused source geometry stays stable during capture');
+    writeFileSync(resolve(output, filename), Buffer.from(shot.data, 'base64'));
+    return client.evaluate(`(async()=>{
+      const image = new Image();
+      image.src = ${JSON.stringify(`data:image/png;base64,${shot.data}`)};
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext('2d',{willReadFrequently:true});
+      context.drawImage(image,0,0);
+      return ${JSON.stringify(points)}.map(row=>row.map(([x,y])=>[...context.getImageData(x,y,1,1).data]));
+    })()`);
+  };
   await client.command('Input.dispatchMouseEvent', { type: 'mouseWheel', ...longBefore.point, deltaX: 600, deltaY: 0 });
-  await waitForEvaluation(client, `document.querySelector('.jot-live-preview-code-scroll').scrollLeft>100`, 10_000);
+  await waitForEvaluation(client, scrolledSource, 10_000);
   const longVisual = await client.evaluate(`(()=>{const w=document.querySelector('.jot-live-preview-code-scroll');return [w,...w.querySelectorAll('div')].map(n=>{const s=getComputedStyle(n),r=n.getBoundingClientRect();return{class:n.className,background:s.backgroundColor,backgroundImage:s.backgroundImage,left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,scrollLeft:n.scrollLeft}})})()`);
-  const sourceShot = await client.command('Page.captureScreenshot', { format: 'png' });
-  writeFileSync(resolve(output, 'source-edit.png'), Buffer.from(sourceShot.data, 'base64'));
-  const samplePixels = await client.evaluate(`(async()=>{const image=new Image();image.src=${JSON.stringify('data:image/png;base64,')}+${JSON.stringify(sourceShot.data)};await image.decode();const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(image,0,0);const w=document.querySelector('.jot-live-preview-code-scroll'),r=w.getBoundingClientRect();return [...w.querySelectorAll('.jot-live-preview-code-boundary')].map(n=>{const b=n.getBoundingClientRect(),y=Math.round((b.top+b.bottom)/2);return [r.left+20,r.right-20].map(x=>[...ctx.getImageData(Math.round(x),y,1,1).data])})})()`);
+  const samplePixels = await sampleCodeBackground('source-edit.png');
   evidence.push({ case: 'code-background-pixels', pixels: samplePixels });
   assert(samplePixels.length === 2 && samplePixels.every(([left, right]) => left.every((channel, index) => Math.abs(channel - right[index]) <= 1)), 'horizontal scrolling keeps the code block background uniform');
   await client.evaluate(`document.querySelector('#theme').click()`);
-  await waitForEvaluation(client, `document.documentElement.dataset.theme==='light' && document.querySelector('.jot-live-preview-code-scroll')?.scrollLeft>100`, 20_000);
+  await waitForEvaluation(client, `document.documentElement.dataset.theme==='light' && (${scrolledSource})`, 20_000);
   await client.evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
-  const lightShot = await client.command('Page.captureScreenshot', { format: 'png' });
-  writeFileSync(resolve(output, 'source-edit-light.png'), Buffer.from(lightShot.data, 'base64'));
-  const lightPixels = await client.evaluate(`(async()=>{const image=new Image();image.src=${JSON.stringify('data:image/png;base64,')}+${JSON.stringify(lightShot.data)};await image.decode();const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(image,0,0);const w=document.querySelector('.jot-live-preview-code-scroll'),r=w.getBoundingClientRect();return [...w.querySelectorAll('.jot-live-preview-code-boundary')].map(n=>{const b=n.getBoundingClientRect(),y=Math.round((b.top+b.bottom)/2);return [r.left+20,r.right-20].map(x=>[...ctx.getImageData(Math.round(x),y,1,1).data])})})()`);
+  const lightPixels = await sampleCodeBackground('source-edit-light.png');
   assert(lightPixels.length === 2 && lightPixels.every(([left, right]) => left.every((channel, index) => Math.abs(channel - right[index]) <= 1)), 'the light theme also keeps a uniform code block background');
   evidence.push({ case: 'code-background-light-theme', pixels: lightPixels });
   for (const type of ['mousePressed', 'mouseReleased']) await client.command('Input.dispatchMouseEvent', { type, button: 'left', clickCount: 1, ...longBefore.point });

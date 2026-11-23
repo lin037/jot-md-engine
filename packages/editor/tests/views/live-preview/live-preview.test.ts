@@ -5,7 +5,8 @@ import type {
   RenderValue,
   TextRange,
 } from "../../../../editor-protocol/src/index.js";
-import { Text } from "@codemirror/state";
+import { EditorState, Text } from "@codemirror/state";
+import { Decoration } from "@codemirror/view";
 import {
   planLivePreview,
   rangesTouch,
@@ -23,6 +24,7 @@ import {
 } from "../../../src/components/table/adapters/interaction.js";
 import { resolveTableSurfaceNavigation } from "../../../src/components/table/source.js";
 import { LivePreviewEditPolicy } from "../../../src/hosts/live-preview/edit-policy.js";
+import { resolveListIndents } from "../../../src/hosts/live-preview/list-indent.js";
 import { nearestRevealDelta } from "../../../src/hosts/live-preview/viewport.js";
 import { tableInteractionAdapter } from "../../../src/components/table/adapters/interaction.js";
 import { createTableComponentModel } from "../../../src/components/table/model.js";
@@ -155,6 +157,16 @@ function blank_lines_remain_physical_codemirror_lines(): void {
   includes(whitespacePlan.decorations, (item) =>
     item.type === "line" && item.from === 6 &&
     item.className.includes("jot-live-preview-blank-line"));
+
+  const leadingBlank = planLivePreview({
+    source: "\nsecond",
+    nodes: [node("blank-line", 0, 0, { type: "source" })],
+    selections: [{ from: 0, to: 0 }],
+  });
+  includes(leadingBlank.decorations, (item) =>
+    item.type === "line" && item.from === 0 &&
+    item.className.includes("jot-live-preview-blank-line") &&
+    item.className.includes("jot-live-preview-native-block--last"));
 }
 
 function presentation_is_selection_driven_and_never_hover_driven(): void {
@@ -984,6 +996,74 @@ function list_indent_uses_rust_columns_without_reparsing_source(): void {
     decoration.attributes?.["style"]?.includes("--jot-live-list-marker-columns:7ch") === true);
 }
 
+function bare_markers_keep_native_text_until_the_separator_is_typed(): void {
+  for (const marker of ["-", "1."]) {
+    const attributes = marker === "-" ? [string("marker", "-")] : [number("number", 1), string("delimiter", ".")];
+    for (const separator of ["", " ", "\t"]) {
+      const source = marker + separator;
+      const item = node("list-item", 0, source.length, structured(), attributes);
+      for (const selections of [[], [{ from: source.length, to: source.length }]]) {
+        const { decorations } = planLivePreview({ source, nodes: [item], selections });
+        equal(decorations.some(decoration => decoration.type === "replace"), separator !== "");
+        equal(decorations.some(decoration => decoration.type === "line" &&
+          decoration.className.includes("jot-live-preview-list-item")), separator !== "");
+      }
+    }
+  }
+}
+
+function list_continuations_share_columns_and_keep_inactive_inline_presentation(): void {
+  const first = "10. first  ";
+  const source = first + "\n    [link](https://example.test)";
+  const next = first.length + 1;
+  const linkFrom = next + 4;
+  const link = node("link", linkFrom, source.length, structured(
+    node("text", linkFrom + 1, linkFrom + 5, { type: "source" }),
+  ));
+  const item = node("list-item", 0, source.length, structured(
+    node("paragraph", 4, source.length, structured(
+      node("text", 4, first.length - 2, { type: "source" }),
+      node("hard-break", first.length - 2, next, { type: "source" }),
+      link,
+    )),
+  ), [number("number", 10), string("delimiter", ".")]);
+  const { decorations } = planLivePreview({ source, nodes: [item], selections: [{ from: 6, to: 6 }] });
+  includes(decorations, decoration => decoration.type === "line" && decoration.from === next &&
+    decoration.attributes?.["data-jot-live-list-marker"] === undefined &&
+    decoration.attributes?.["style"]?.includes("--jot-live-list-marker-columns:3ch") === true);
+  includes(decorations, decoration => decoration.type === "replace" &&
+    decoration.from === linkFrom + 5 && decoration.to === source.length);
+}
+
+function indentation_reuses_only_safe_confirmed_list_prefixes(): void {
+  for (const [source, prefixEnd, marker, change, expectedEnd, expectedStyle] of [
+    ["- item", 2, "•", { from: 0, insert: "  " }, 4, "--jot-live-list-indent:2ch"],
+    ["  10. item", 6, "10.", { from: 0, to: 2, insert: "" }, 4, ""],
+    ["   continuation", 3, undefined, { from: 0, insert: "  " }, 3, undefined],
+    ["   continuation", 3, undefined, { from: 0, to: 2, insert: "" }, undefined, undefined],
+    ["  \n  next", 2, undefined, { from: 0, insert: "  " }, undefined, undefined],
+    ["    * * *", 6, "•", { from: 0, to: 2, insert: "" }, undefined, undefined],
+    ["- item  \n  continuation", 2, "•", { from: 0, insert: "  " }, undefined, undefined],
+    ["-\titem", 2, "•", { from: 0, insert: "  " }, undefined, undefined],
+    ["   - \t item", 5, "•", { from: 0, insert: "  " }, undefined, undefined],
+  ] as const) {
+    const decorations = Decoration.set([
+      Decoration.line({ jotLiveNode: "list", jotLiveSourceLine: true,
+        class: "jot-live-preview-list-item jot-live-preview-native-block--last",
+        attributes: marker === undefined ? {} : { "data-jot-live-list-marker": marker },
+      }).range(0),
+      Decoration.replace({ jotLiveNode: "list", jotLiveStructural: true }).range(0, prefixEnd),
+    ], true);
+    const state = EditorState.create({ doc: source });
+    const result = resolveListIndents(decorations, state.update({
+      changes: change, userEvent: "input.indent",
+    }));
+    equal(result[0]?.to, expectedEnd);
+    equal(result[0]?.row?.spec.attributes?.style, expectedStyle);
+    if (expectedEnd !== undefined) equal(result[0]?.from, 0);
+  }
+}
+
 function closed_math_source_hides_markers_and_preserves_rendered_height(): void {
   const source = "$$\nx + y\n$$";
   const math = node("math-block", 0, source.length, { type: "deferred" }, [
@@ -1201,6 +1281,9 @@ utf16_selection_boundaries_are_not_code_point_offsets();
 decoration_cap_degrades_instead_of_expanding_the_document();
 native_block_overflow_is_bounded_without_widgets();
 list_indent_uses_rust_columns_without_reparsing_source();
+bare_markers_keep_native_text_until_the_separator_is_typed();
+list_continuations_share_columns_and_keep_inactive_inline_presentation();
+indentation_reuses_only_safe_confirmed_list_prefixes();
 closed_math_source_hides_markers_and_preserves_rendered_height();
 closed_container_edit_policy_allows_opening_but_protects_closing();
 active_image_source_keeps_the_last_rendered_geometry();

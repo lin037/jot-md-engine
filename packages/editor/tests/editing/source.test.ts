@@ -5,7 +5,9 @@ import {
   type TransactionSpec,
 } from "@codemirror/state";
 import { createDefaultEditorCommandRegistry } from "../../src/components/commands.js";
-import { history, undoDepth } from "@codemirror/commands";
+import { defaultKeymap, history, undoDepth } from "@codemirror/commands";
+import { markdown } from "@codemirror/lang-markdown";
+import { markdownEditingKeymap } from "../../src/hosts/source/markdown-keymap.js";
 import { engineSynchronization, requestedOrigin, sourceReadOnlyFilter } from "../../src/hosts/source/synchronization.js";
 import { sourceSnapshot } from "../../src/hosts/shared/source-snapshot.js";
 import {
@@ -61,6 +63,35 @@ function source_snapshots_share_only_the_latest_text_per_view(): void {
   } finally {
     Reflect.deleteProperty(initial.doc, "toString");
     Reflect.deleteProperty(updated.doc, "toString");
+  }
+}
+
+function markdown_keymap_preserves_unfinished_list_markers(): void {
+  for (const [source, key, expected] of [
+    ["-", "Enter", "-\n"],
+    ["1.", "Enter", "1.\n"],
+    ["  9)", "Enter", "  9)\n  "],
+    ["1.", "Backspace", "1"],
+    ["> 1.", "Enter", "> 1.\n> "],
+    ["> 1.", "Backspace", "> 1"],
+    ["> 1. first\n> 2.", "Enter", "> 1. first\n> 2.\n> "],
+    ["- 1.", "Enter", "- "],
+    ["> - 1.", "Enter", "> - "],
+    ["```\n> 1.\n```", "Enter", "```\n> 1.\n\n```"],
+    ["- ", "Enter", ""],
+    ["1. ", "Enter", ""],
+    ["1. text", "Enter", "1. text\n2. "],
+  ] as const) {
+    const at = source.startsWith("```") ? source.lastIndexOf("\n") : source.length;
+    let state = EditorState.create({ doc: source, selection: { anchor: at }, extensions: markdown() });
+    const view = {
+      get state() { return state; },
+      dispatch(change: Transaction | TransactionSpec) {
+        state = (change instanceof Transaction ? change : state.update(change)).state;
+      },
+    } as unknown as EditorView;
+    equal([...markdownEditingKeymap, ...defaultKeymap].some(binding => binding.key === key && binding.run?.(view)), true);
+    equal(state.doc.toString(), expected);
   }
 }
 
@@ -374,6 +405,7 @@ function equal<T>(actual: T, expected: T): void {
 }
 
 source_snapshots_share_only_the_latest_text_per_view();
+markdown_keymap_preserves_unfinished_list_markers();
 source_search_matches_full_document_and_respects_query_options();
 source_replace_all_is_one_undoable_transaction_and_honors_read_only();
 await search_engine_matches_unicode_boundaries_and_prunes_misses();

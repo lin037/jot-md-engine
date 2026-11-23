@@ -44,6 +44,7 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
     indentColumns: number;
     headingLevel?: number;
     listMarker?: string;
+    listMarkerColumns?: number;
     codeLine?: number;
     codeOwner?: string;
     quoteDepth?: number;
@@ -86,6 +87,15 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
     : resolveSourceRootAt(input.source, input.nodes, activeSourceRange.from);
   const revealSyntax = input.revealSyntax === true;
 
+  const presentationNode = (node: RenderNode): RenderNode => {
+    node = quoteOwners.get(node.id) ?? node;
+    if (node.kind !== "list-item" || node.childCount !== 0 ||
+        (node.content.type === "structured" && node.content.children.length !== 0)) return node;
+    const last = input.source[Number(node.sourceRange.to) - 1];
+    // A saved empty list can omit the separator. Its bare marker remains editable text here.
+    return last === " " || last === "\t" ? node : { ...node, kind: "paragraph" };
+  };
+
   const add = (decoration: LivePreviewDecoration): boolean => {
     if (visualDecorationCount + lines.size >= maximum) {
       truncated = true;
@@ -115,6 +125,10 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
   const addLines = (node: RenderNode, ...classNames: readonly string[]): void => {
     if (truncated) return;
     const codeContent = node.kind === "fenced-code" ? rangeAttribute(node, "contentRange") : undefined;
+    const listMarker = node.kind === "list-item" ? listMarkerText(node) : undefined;
+    const listMarkerColumns = listMarker !== undefined && numberAttribute(node, "number") !== undefined
+      ? listMarker.length
+      : undefined;
     let codeLine = 1;
     let codeOffset = Number(codeContent?.from ?? 0);
     let codeLineInitialized = false;
@@ -170,8 +184,10 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
           line.indentColumns,
           listDisplayIndentColumns(numberAttribute(node, "indentColumns") ?? 0),
         );
-        const marker = from === physicalLineStart(input.source, Number(node.sourceRange.from)) ? listMarkerText(node) : undefined;
-        if (marker !== undefined) line.listMarker = marker;
+        if (listMarker !== undefined) {
+          if (from === physicalLineStart(input.source, Number(node.sourceRange.from))) line.listMarker = listMarker;
+          if (listMarkerColumns !== undefined) line.listMarkerColumns = listMarkerColumns;
+        }
       }
       lines.set(from, line);
     }
@@ -590,7 +606,7 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
     suppliedPlan?: ComponentLivePreviewPlan,
     root = false,
   ): void => {
-    node = quoteOwners.get(node.id) ?? node;
+    node = presentationNode(node);
     if (truncated || visitedIds.has(node.id)) return;
     visitedIds.add(node.id);
     visitedNodes += 1;
@@ -793,7 +809,7 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
 
   const activeSyntaxIds = new Set<string>();
   const decorateActiveSourceBlockSyntax = (node: RenderNode): void => {
-    node = quoteOwners.get(node.id) ?? node;
+    node = presentationNode(node);
     if (activeSyntaxIds.has(node.id)) return;
     activeSyntaxIds.add(node.id);
     if (node.kind === "fenced-code" && quoteOwners.has(node.id)) {
@@ -830,8 +846,9 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
     }
   };
 
-  for (const node of input.nodes) {
+  for (const root of input.nodes) {
     if (truncated) break;
+    const node = presentationNode(root);
     const componentPlan = componentPlanFor(node);
     const selectedRoot = activeSourceNode?.id === node.id;
     // A document containing only a diagram still needs a way back to its
@@ -914,11 +931,14 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
         addActiveSourceShell(node);
       }
       if (active) decorateActiveSourceBlockSyntax(node);
-      const quoteSelection = quote && !geometryShell ? activeSourceRange : undefined;
-      if (active) decorateActiveSourceInline(node, quoteSelection);
+      const inlineEditRange = quote && !geometryShell ? activeSourceRange
+        : active && node.kind === "list-item" && !revealSyntax && activeSourceRange !== undefined
+          ? activeSourceLines ??= physicalSourceLines(input.source, activeSourceRange)
+          : undefined;
+      if (active) decorateActiveSourceInline(node, inlineEditRange);
       if (active && quote) visitQuoteLineOwners(node, owner => {
         decorateActiveSourceBlockSyntax(owner);
-        decorateActiveSourceInline(owner, quoteSelection);
+        decorateActiveSourceInline(owner, inlineEditRange);
       });
       if (active) hideClosedContainerSyntax(node, node.kind === "math-block");
       if (active) addSourceCompanionImages(node);
@@ -1032,6 +1052,7 @@ function lineAttributes(line: {
   readonly indentColumns: number;
   readonly headingLevel?: number;
   readonly listMarker?: string;
+  readonly listMarkerColumns?: number;
   readonly codeLine?: number;
   readonly codeOwner?: string;
   readonly quoteDepth?: number;
@@ -1062,12 +1083,10 @@ function lineAttributes(line: {
   }
   if (line.listMarker !== undefined) {
     attributes["data-jot-live-list-marker"] = line.listMarker;
-    // Rust already provided the marker; reserve space for long ordered
-    // numbers without allowing the text to escape the editor's left edge.
-    // Use ch so the column follows the host's actual font size/family.
-    if (/^[0-9]+[.)]$/u.test(line.listMarker)) {
-      styles.push(`--jot-live-list-marker-columns:${line.listMarker.length}ch`);
-    }
+  }
+  if (line.listMarkerColumns !== undefined) {
+    // Every physical line of this item has the same body column.
+    styles.push(`--jot-live-list-marker-columns:${line.listMarkerColumns}ch`);
   }
   if (styles.length > 0) attributes["style"] = styles.join(";");
   return Object.keys(attributes).length === 0 ? {} : { attributes };
@@ -1119,7 +1138,7 @@ function hasRenderSizedInline(node: RenderNode): boolean {
 
 function physicalLineStart(source: string, offset: number): number {
   const safe = clamp(offset, 0, source.length);
-  return source.lastIndexOf("\n", Math.max(0, safe - 1)) + 1;
+  return safe === 0 ? 0 : source.lastIndexOf("\n", safe - 1) + 1;
 }
 
 function physicalSourceLines(source: string, selection: LivePreviewSelectionRange): LivePreviewSelectionRange {
@@ -1184,7 +1203,7 @@ function lineStarts(
   if (to < from) return [];
   const last = to > from ? to - 1 : from;
   const starts: number[] = [];
-  let lineFrom = source.lastIndexOf("\n", Math.max(0, from - 1)) + 1;
+  let lineFrom = physicalLineStart(source, from);
   while (lineFrom <= last) {
     starts.push(lineFrom);
     const next = source.indexOf("\n", lineFrom);
@@ -1198,7 +1217,7 @@ function lastPhysicalLineStart(source: string, range: TextRange): number {
   const from = clamp(Number(range.from), 0, source.length);
   const to = clamp(Number(range.to), from, source.length);
   const position = to > from && source[to - 1] === "\n" ? to - 1 : Math.max(from, to - 1);
-  return source.lastIndexOf("\n", Math.max(0, position - 1)) + 1;
+  return physicalLineStart(source, position);
 }
 
 function hasLineBreak(source: string, from: number, to: number): boolean {

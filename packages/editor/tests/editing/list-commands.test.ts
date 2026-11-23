@@ -1,6 +1,6 @@
 import { EditorSelection, EditorState } from "@codemirror/state";
 import type { RenderAttribute, RenderNode, Utf16Offset } from "../../../editor-protocol/src/index.js";
-import { resolveListEnter, type ListEnterContext } from "../../src/components/list-commands.js";
+import { movedOrderedListNumber, orderedListLine, resolveListEnter, type ListEnterContext } from "../../src/components/list-commands.js";
 
 function equal(actual: unknown, expected: unknown): void {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -54,6 +54,14 @@ function physical_list_enter_preserves_markers_and_splits_utf16_content(): void 
 }
 
 function empty_items_exit_one_confirmed_level_without_invisible_rows(): void {
+  for (const marker of ["-", "+", "*", "1.", "9)"]) {
+    const at = marker.length as Utf16Offset;
+    for (const shift of [false, true]) {
+      equal(resolveListEnter({ source: marker, selection: { anchor: at, head: at }, item: item(marker), shift }), undefined);
+    }
+    equal(run(`${marker} `).source, "");
+    equal(run(`${marker}\t`).source, "");
+  }
   equal(run("  - ").source, "");
   const source = "1. parent\n    - ";
   const start = source.indexOf("    -");
@@ -124,8 +132,32 @@ function splitting_before_a_hard_break_promotes_the_right_body_without_losing_it
   }
 }
 
+function ordered_indentation_numbers_only_the_destination_run(): void {
+  for (const [source, indent, expected] of [
+    ["9) Parent\n10) ", 2, 1],
+    ["2. Parent\n  7. Child\n9. Moved", 2, 8],
+    ["2. Parent\n  7) Child\n9. Moved", 2, 1],
+    ["9) Parent\n  7) Child", 0, 10],
+    ["Paragraph\n\n12. Existing", 2, undefined],
+    ["9. Not a contiguous parent\n\n12. Existing", 2, undefined],
+  ] as const) {
+    const from = source.lastIndexOf("\n") + 1;
+    const row = orderedListLine(source, from, source.length)!;
+    const roots: RenderNode[] = [];
+    let offset = 0;
+    for (const text of source.slice(0, from).split("\n").slice(0, -1)) {
+      if (/^[\t ]*\d+[.)][\t ]/u.test(text)) {
+        roots.push({ ...item(source, offset, offset + text.length), childCount: 1 });
+      }
+      offset += text.length + 1;
+    }
+    equal(movedOrderedListNumber(source, row, indent, roots), expected);
+  }
+}
+
 physical_list_enter_preserves_markers_and_splits_utf16_content();
 empty_items_exit_one_confirmed_level_without_invisible_rows();
 shift_enter_uses_explicit_hard_breaks_and_content_columns();
 list_commands_require_confirmed_compatible_ranges();
 splitting_before_a_hard_break_promotes_the_right_body_without_losing_its_chain();
+ordered_indentation_numbers_only_the_destination_run();

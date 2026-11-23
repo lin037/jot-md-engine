@@ -10,6 +10,7 @@ import {
 import {
   CodeMirrorSource,
   type CodeMirrorSourceOptions,
+  type EditorHistorySnapshot,
 } from "../hosts/source/codemirror-source.js";
 import { createDefaultEditorCommandRegistry } from "../components/commands.js";
 import { EditorCommandRegistry, type TableInsertionSize } from "../core/commands/index.js";
@@ -48,12 +49,14 @@ export type MarkdownEditorMode =
 export interface MarkdownEditorOptions {
   readonly root: HTMLElement;
   readonly session: EditorDocumentSessionOptions;
+  /** Restore undo and redo if the document ID and initial text match. */
+  readonly history?: EditorHistorySnapshot | undefined;
   readonly mode?: MarkdownEditorMode;
   /** `mode` 为 `split` 时显示在 Source 旁边的 Surface，默认是 Preview。 */
   readonly surfaceMode?: EditorSurfaceMode;
   readonly input?: Omit<
     CodeMirrorSourceOptions,
-    "root" | "session" | "transactions" | "onError" | "commands"
+    "root" | "session" | "transactions" | "onError" | "commands" | "history"
   >;
   /** 未指定时使用内置的编辑、格式、块结构和表格命令。 */
   readonly commands?: EditorCommandRegistry;
@@ -133,7 +136,7 @@ export class MarkdownEditor {
     void this.#executeVisibleCommand(binding.command).catch((error) => this.#onError?.(error));
   };
 
-  constructor(options: MarkdownEditorOptions) {
+  constructor({ history: historySnapshot, ...options }: MarkdownEditorOptions) {
     this.#initialRootLimit = (options.session.budgets ?? DEFAULT_EDITOR_BUDGETS).interactive.maxBlocks;
     if (options.theme !== undefined) validateEditorTheme(options.root, options.theme);
     this.#plugins = new EditorPluginRegistry(options.plugins);
@@ -144,7 +147,12 @@ export class MarkdownEditor {
     this.#root = options.root;
     this.#mode = options.mode ?? "split";
     this.#surfaceMode = options.surfaceMode ?? modeSurface(this.#mode);
-    this.#onError = options.onError ?? options.session.onError;
+    const onError = options.onError ?? options.session.onError;
+    this.#onError = onError && ((error: unknown) => {
+      // In-flight render requests are rejected when their session is disposed.
+      if (error !== undefined && this.#disposed && error === this.session.terminalError) return;
+      onError(error);
+    });
     this.commands = options.commands ?? createDefaultEditorCommandRegistry(
       options.root.ownerDocument.defaultView?.navigator.platform,
     );
@@ -251,6 +259,7 @@ export class MarkdownEditor {
       transactions: this.transactions,
       commands: this.commands,
       ...options.input,
+      history: historySnapshot,
       extensions: inputExtensions,
       onInputTransaction: (event) => {
         this.events.acceptInput(event);
@@ -338,6 +347,12 @@ export class MarkdownEditor {
   /** Rust 引擎最近一次确认的值。 */
   get confirmedValue(): string {
     return this.session.adapter.text.text;
+  }
+
+  /** Capture local undo and redo history for reopening the same document. */
+  captureHistory(): EditorHistorySnapshot | undefined {
+    this.#assertOpened();
+    return this.input.captureHistory();
   }
 
   get revision(): Revision {

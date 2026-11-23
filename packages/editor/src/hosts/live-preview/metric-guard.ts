@@ -7,6 +7,7 @@ import type { Extension } from "@codemirror/state";
 // that line a non-text tile for the probe, so CM uses its own representative
 // undecorated measurement line instead. It does not alter source or layout.
 const neutralMetricMark = Decoration.mark({ attributes: { "data-jot-metric-guard": "" } });
+const blankMetricMark = Decoration.mark({ attributes: { "data-jot-metric-guard": "", "data-jot-blank-text": "" } });
 
 function visibleMetricGuards(view: EditorView): DecorationSet {
   const decorations = [];
@@ -16,10 +17,11 @@ function visibleMetricGuards(view: EditorView): DecorationSet {
     const last = view.state.doc.lineAt(range.to).number;
     for (let number = first; number <= last; number += 1) {
       const line = view.state.doc.line(number);
-      if (seen.has(line.from) || line.from < range.from || line.to > range.to ||
-          line.length === 0 || line.length > 20 || /[^ -~]/u.test(line.text)) continue;
+      if (seen.has(line.from) || line.from < range.from || line.to > range.to || line.length === 0) continue;
+      const blank = /^[ \t]+$/u.test(line.text);
+      if (!blank && (line.length > 20 || /[^ -~]/u.test(line.text))) continue;
       seen.add(line.from);
-      decorations.push(neutralMetricMark.range(line.from, line.to));
+      decorations.push((blank ? blankMetricMark : neutralMetricMark).range(line.from, line.to));
     }
   }
   return Decoration.set(decorations, true);

@@ -4,10 +4,10 @@ import type { ProjectionSlice, RenderNode, Revision, Utf16Offset } from "@jot-md
 import { countColumn, EditorSelection, Text, Transaction, type ChangeSpec, type EditorState, type Extension, type TransactionSpec } from "@codemirror/state";
 import { deleteMarkupBackward, insertNewlineContinueMarkup } from "@codemirror/lang-markdown";
 import { getIndentUnit, indentString, indentUnit } from "@codemirror/language";
-import { resolveListEnter } from "../../components/list-commands.js";
+import { movedOrderedListNumber, orderedListLine, resolveListEnter, type OrderedListLine } from "../../components/list-commands.js";
 import { getSearchQuery, searchPanelOpen } from "@codemirror/search";
 import { readDomSourceRange } from "../../components/common/dom-position.js";
-import { activateRenderedLink } from "../../components/common/dom-renderer.js";
+import { activateRenderedLink, numberAttribute } from "../../components/common/dom-renderer.js";
 import {
   BlockType,
   EditorView,
@@ -52,6 +52,7 @@ import {
   type ProjectionEditChange,
 } from "./edit-policy.js";
 import { createLivePreviewExtension, optimisticEmptyFirstInput, type OptimisticEmptyFirstInput } from "./extension.js";
+import { orderedListRenumber } from "./list-indent.js";
 import type { QuoteLine } from "./optimistic-quote.js";
 import { planLivePreview } from "./planner.js";
 import { resolveSourceRootAt, sourcePresentationRanges } from "./presentation.js";
@@ -212,6 +213,7 @@ export class LivePreviewController {
   #emptyComposition: EmptyComposition | undefined;
   #emptyCompositionTimer: ReturnType<typeof setTimeout> | undefined;
   #pendingBlankMarkers: PendingBlankMarkers | undefined;
+  #continuedOrderedList: { readonly doc: Text; readonly row: OrderedListLine; readonly preceding: readonly RenderNode[] } | undefined;
   #trustedLocalGesture: TrustedLocalGesture | undefined;
   #trustedLocalGestureTimer: ReturnType<typeof setTimeout> | undefined;
   #applyingPlan = false;
@@ -531,6 +533,10 @@ export class LivePreviewController {
 
   #filterTransaction(transaction: Transaction): Transaction | readonly TransactionSpec[] {
     if (!this.allowTransaction(transaction)) return [];
+    if (transaction.isUserEvent("input.indent") || transaction.isUserEvent("delete.dedent")) {
+      const numbered = this.#numberMovedOrderedList(transaction);
+      if (numbered !== transaction) return numbered;
+    }
     if (!this.#enabled || !this.#opened || this.#disposed ||
         !transaction.docChanged || !transaction.isUserEvent("input") ||
         transaction.isUserEvent("input.api") || transaction.isUserEvent("input.engine-sync") ||
@@ -578,6 +584,40 @@ export class LivePreviewController {
           ? emptyContainerFirstInput.of({ nodeId: optimistic!.id, position, kind: optimistic!.kind })
           : optimisticEmptyFirstInput.of(optimistic!)
         : emptyContainerFirstInput.of({ nodeId: empty.nodeId, position, kind: empty.kind }),
+    }];
+  }
+
+  #numberMovedOrderedList(transaction: Transaction): Transaction | readonly TransactionSpec[] {
+    const { doc, selection, readOnly } = transaction.startState;
+    if (!this.#enabled || !this.#opened || this.#disposed || this.#composing || this.#searchSourceReveal ||
+        readOnly || transaction.changes.empty || selection.ranges.length !== 1 || !selection.main.empty) return transaction;
+    const line = doc.lineAt(selection.main.head);
+    const pending = this.#continuedOrderedList;
+    let row: OrderedListLine | undefined;
+    let preceding = this.#visibleNodes;
+    if (pending?.doc === doc && pending.row.from === line.from) {
+      row = pending.row;
+      preceding = pending.preceding;
+    } else if (!this.#awaitingConfirmation && this.#sourceIsConfirmed()) {
+      const item = resolveSourceRootAt(this.#source, preceding, line.from);
+      if (item?.kind === "list-item" && item.mode !== "source" &&
+          Number(item.sourceRange.from) === line.from && Number(item.sourceRange.to) === line.to &&
+          numberAttribute(item, "number") !== undefined) row = orderedListLine(this.#source, line.from, line.to);
+    }
+    if (row === undefined) return transaction;
+    const from = transaction.changes.mapPos(row.digitsFrom, 1);
+    const lineStart = transaction.changes.mapPos(row.from, -1);
+    const to = from + row.digitsTo - row.digitsFrom;
+    const indentation = transaction.newDoc.sliceString(lineStart, from);
+    if (/[^ \t]/u.test(indentation) ||
+        transaction.newDoc.sliceString(from, to + 1) !== doc.sliceString(row.digitsFrom, row.digitsTo + 1)) return transaction;
+    const number = movedOrderedListNumber(this.#source, row, countColumn(indentation, 4), preceding);
+    if (number === undefined || number === row.number) return transaction;
+    const digits = String(number);
+    return [transaction, {
+      changes: { from: lineStart, to, insert: indentation + digits },
+      sequential: true,
+      annotations: orderedListRenumber.of({ row, digits }),
     }];
   }
 
@@ -1281,6 +1321,7 @@ export class LivePreviewController {
       this.#checkViewportCoverageAfterMeasure(update.view);
     }
     if (update.docChanged) {
+      this.#continuedOrderedList = undefined;
       this.#pendingTableRowInput = undefined;
       const before = update.startState.selection.main;
       const after = update.state.selection.main;
@@ -1928,6 +1969,10 @@ export class LivePreviewController {
         const result = resolveListEnter({ ...context, shift: event.shiftKey }) ??
           (event.shiftKey ? resolveListEnter(context) : undefined);
         if (result?.edits !== undefined && result.selection !== undefined) {
+          const append = result.edits[0];
+          const preceding = result.userEvent === "input.list.continue" && result.edits.length === 1 &&
+            append !== undefined && append.range.from === item.sourceRange.to && append.range.to === append.range.from &&
+            numberAttribute(item, "number") !== undefined ? this.#visibleNodes : undefined;
           event.preventDefault();
           view.dispatch({
             changes: result.edits.map(edit => ({ from: Number(edit.range.from), to: Number(edit.range.to), insert: edit.insert })),
@@ -1935,6 +1980,14 @@ export class LivePreviewController {
             userEvent: result.userEvent,
             scrollIntoView: true,
           });
+          if (preceding !== undefined && append !== undefined) {
+            const doc = view.state.doc;
+            const line = doc.lineAt(view.state.selection.main.head);
+            if (line.from === Number(append.range.from) + 1) {
+              const row = orderedListLine(this.#source, line.from, line.to);
+              if (row !== undefined) this.#continuedOrderedList = { doc, row, preceding };
+            }
+          }
           return true;
         }
       }

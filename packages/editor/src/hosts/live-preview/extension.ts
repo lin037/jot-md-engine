@@ -30,6 +30,7 @@ import { LivePreviewWidget } from "./widget.js";
 import { TaskMarkerWidget } from "./task-marker-widget.js";
 import { applyOptimisticQuoteEdits, emptyQuoteForwardDeleteAt, leadingQuoteMarkerWidget, ordinaryQuoteLineAt, quoteLineAt, resolveOptimisticQuoteEdits, type QuoteLine } from "./optimistic-quote.js";
 import { applyOptimisticCodeLines, resolveOptimisticCodeLines } from "./optimistic-code-lines.js";
+import { resolveListIndents } from "./list-indent.js";
 import { quotedCodeLineAt, type QuotedCodeLine } from "./quoted-code-line.js";
 
 const wrapperNodeIds = new WeakMap<BlockWrapper, string>();
@@ -352,6 +353,7 @@ function mapUnaffectedDecorations(
 ): DecorationState {
   const quoteEdits = resolveOptimisticQuoteEdits(value.decorations, transaction);
   const codeLines = resolveOptimisticCodeLines(value.decorations, transaction);
+  const listIndents = resolveListIndents(value.decorations, transaction);
   const changed: Array<{ readonly from: number; readonly to: number }> = [];
   const edits: Array<{ readonly from: number; readonly to: number }> = [];
   const mappedEdits: Array<{ readonly from: number; readonly to: number }> = [];
@@ -367,21 +369,22 @@ function mapUnaffectedDecorations(
     });
   });
   const quoteMarkerByStart = new Map<number, typeof quoteEdits[number][]>();
-  const structuralByStart = new Map<number, NonNullable<typeof quoteEdits[number]["structuralMarkers"]>[number][]>();
-  const structuralByLine = new Map<number, NonNullable<typeof quoteEdits[number]["structuralMarkers"]>[number][]>();
+  type StructuralMarker = NonNullable<typeof quoteEdits[number]["structuralMarkers"]>[number];
+  const structuralByStart = new Map<number, StructuralMarker[]>();
+  const structuralByLine = new Map<number, StructuralMarker[]>();
   const quoteOwners = new Set<string>();
   for (const quoteEdit of quoteEdits) {
     quoteOwners.add(quoteEdit.owner);
     const markers = quoteMarkerByStart.get(quoteEdit.oldMarkerFrom) ?? [];
     markers.push(quoteEdit);
     quoteMarkerByStart.set(quoteEdit.oldMarkerFrom, markers);
-    for (const marker of quoteEdit.structuralMarkers ?? []) {
-      const at = structuralByStart.get(marker.oldFrom) ?? [];
-      at.push(marker); structuralByStart.set(marker.oldFrom, at);
-      const line = transaction.startState.doc.lineAt(marker.oldFrom).from;
-      const onLine = structuralByLine.get(line) ?? [];
-      onLine.push(marker); structuralByLine.set(line, onLine);
-    }
+  }
+  for (const marker of [...listIndents, ...quoteEdits.flatMap(edit => edit.structuralMarkers ?? [])]) {
+    const at = structuralByStart.get(marker.oldFrom) ?? [];
+    at.push(marker); structuralByStart.set(marker.oldFrom, at);
+    const line = transaction.startState.doc.lineAt(marker.oldFrom).from;
+    const onLine = structuralByLine.get(line) ?? [];
+    onLine.push(marker); structuralByLine.set(line, onLine);
   }
   const firstInput = transaction.annotation(emptyContainerFirstInput);
   const optimisticInput = transaction.annotation(optimisticEmptyFirstInput);
@@ -529,6 +532,19 @@ function mapUnaffectedDecorations(
     isMappedSelection(decoration) ? !dirtyMappedRoots.has(decoration.spec.jotLiveNode as string) : keep(from, to, decoration);
   let decorations = value.decorations.map(transaction.changes).update({ filter: keepMapped });
   let atomic = value.atomic.map(transaction.changes).update({ filter: keep });
+  const stableIndents = listIndents.filter(indent => !invalidatedNodes.has(indent.owner));
+  if (stableIndents.length > 0) {
+    const moved = new Set(stableIndents.map(indent => indent.decoration));
+    const rows = new Map(stableIndents.flatMap(indent => indent.row === undefined ? [] : [[indent.from, indent]] as const));
+    const markers = stableIndents.map(indent => indent.decoration.range(indent.from, indent.to));
+    decorations = decorations.update({
+      filter: (from, _to, decoration) => !moved.has(decoration) &&
+        !(decoration.spec.jotLiveSourceLine === true && rows.get(from)?.owner === decoration.spec.jotLiveNode),
+      add: [...markers, ...[...rows.values()].map(indent => indent.row!.range(indent.from))],
+      sort: true,
+    });
+    atomic = atomic.update({ filter: (_from, _to, decoration) => !moved.has(decoration), add: markers, sort: true });
+  }
   const safeQuoteEdits = quoteEdits.filter(quoteEdit => !invalidatedNodes.has(quoteEdit.owner));
   if (safeQuoteEdits.length > 0) ({ decorations, atomic } = applyOptimisticQuoteEdits(decorations, atomic, safeQuoteEdits));
   if (codeLines !== undefined && !invalidatedNodes.has(codeLines.owner)) {
