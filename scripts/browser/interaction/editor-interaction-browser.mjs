@@ -57,7 +57,7 @@ try {
   const root=document.createElement('div');root.id='integration';root.style.cssText='height:700px;width:900px;margin:10px';document.body.replaceChildren(root);
   window.worker=new Worker('/src/worker.ts',{type:'module'});
   window.errors=[];
-  window.editor=new MarkdownEditor({root,mode:'live-preview',plugins:[createHeadingFoldPlugin({enabled:false})],session:{endpoint:worker,documentId:'integration',generation:1,source:'ready',syntaxProfile:{id:'default',version:1,enabledExtensions:[]}},onError:e=>errors.push(String(e))});
+  window.editor=new MarkdownEditor({root,mode:'live-preview',locale:'zh-CN',plugins:[createHeadingFoldPlugin({enabled:false})],session:{endpoint:worker,documentId:'integration',generation:1,source:'ready',syntaxProfile:{id:'default',version:1,enabledExtensions:[]}},onError:e=>errors.push(String(e))});
   await editor.open();window.view=editor.input.view;
  })()`);
  if (!specialOnly && !process.env.JOT_TREE_EDIT_ONLY && !process.env.JOT_KEYBOARD_ONLY && !process.env.JOT_NAVIGATION_ONLY) {

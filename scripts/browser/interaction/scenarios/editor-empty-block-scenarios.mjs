@@ -12,6 +12,11 @@ export async function runEmptyBlockScenarios({c,load,settle,confirmed,results,sc
   await c.command('Input.dispatchKeyEvent',{type:'keyUp',key:name,code,modifiers,windowsVirtualKeyCode:virtual});
   await settle();
  }
+ // These cases deliberately build adjacent delimiters without a physical body row.
+ async function manualNewline() {
+  for (const type of ['keyDown','keyUp']) await c.command('Input.dispatchKeyEvent',
+    {type,key:'Enter',code:'Enter',modifiers:8,windowsVirtualKeyCode:13});
+ }
  async function inspect() {
   return c.evaluate(`(()=>{const s=view.state.selection.main,p=view.scrollDOM.getBoundingClientRect(),r=view.coordsAtPos(s.head),active=document.activeElement;
    let visibleCandidate=false;const walker=document.createTreeWalker(view.dom,NodeFilter.SHOW_TEXT);
@@ -62,8 +67,7 @@ export async function runEmptyBlockScenarios({c,load,settle,confirmed,results,sc
   if(recordTiming)await installTrace();
   if(holdWorker) await holdWorkerGate();
   for(const char of opening)await c.command('Input.insertText',{text:char});
-  await c.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
-  await c.command('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await manualNewline();
   for(const char of closing)await c.command('Input.insertText',{text:char});
   if(waitBeforeHome)await confirmed();
   await c.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Home',code:'Home',windowsVirtualKeyCode:36});
@@ -97,7 +101,7 @@ export async function runEmptyBlockScenarios({c,load,settle,confirmed,results,sc
  if(!onlyCase) {
  // Compare the bounded front-end candidate classifier with the actual
  // Rust-confirmed root kinds; fixtures are the only programmatic source load.
- const helperUrl='/@fs'+process.cwd()+'/packages/editor/src/hosts/live-preview/empty-block-input.ts';
+ const helperUrl='/@fs'+process.cwd()+'/packages/editor/src/hosts/shared/markdown-markers.ts';
  if(!onlyKind) for(const [opening,closing,expectedFast,expectedRoot] of [
   ['```','```','code-bare','fenced-code'],['``` ts','```','code-bare','fenced-code'],
   ['  ``` 是🙂',' ```  ','code-bare','fenced-code'],['``` begin','``` end','code-end','fenced-code'],
@@ -198,7 +202,7 @@ export async function runEmptyBlockScenarios({c,load,settle,confirmed,results,sc
  // This exercises parsing when an incomplete opener gains its actual closer.
  await load('before\n\nafter');await clickBefore();await press('End');await press('ArrowDown');
  for(let i=0;i<3;i++)await c.command('Input.insertText',{text:'`'});
- await confirmed();await press('Enter');await confirmed();
+ await confirmed();await manualNewline();await confirmed();
  for(let i=0;i<3;i++)await c.command('Input.insertText',{text:'`'});
  await confirmed();
  let typed=await inspect();
@@ -213,7 +217,7 @@ export async function runEmptyBlockScenarios({c,load,settle,confirmed,results,sc
  for(const [suffix,closing] of [['rust','```'],['begin','``` end']]) {
   await load('before\n\nafter');await clickBefore();await press('End');await press('ArrowDown');
   for(let i=0;i<3;i++)await c.command('Input.insertText',{text:'`'});
-  await c.command('Input.insertText',{text:suffix});await confirmed();await press('Enter');await confirmed();
+  await c.command('Input.insertText',{text:suffix});await confirmed();await manualNewline();await confirmed();
   await c.command('Input.insertText',{text:closing});await confirmed();
   const invalid=`before\n\`\`\`${suffix}\n${closing}\nafter`,valid=`before\n\`\`\` ${suffix}\n${closing}\nafter`;
   assert.equal((await inspect()).source,invalid,suffix+': invalid opening remains exact ordinary source');
@@ -262,8 +266,7 @@ export async function runEmptyBlockScenarios({c,load,settle,confirmed,results,sc
  const emptyInitial=await c.evaluate(`(()=>({source:editor.value,confirmed:editor.confirmedValue,revision:Number(editor.revision),totalRoots:editor.session.adapter.projection.totalBlocks,roots:editor.session.adapter.blocks.blocks.map(n=>({kind:n.kind,from:Number(n.sourceRange.from),to:Number(n.sourceRange.to),dirty:n.dirty}))}))()`);
  await holdWorkerGate();
  for(let i=0;i<3;i++)await c.command('Input.insertText',{text:'`'});
- await c.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
- await c.command('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+ await manualNewline();
  for(let i=0;i<3;i++)await c.command('Input.insertText',{text:'`'});
  await c.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Home',code:'Home',windowsVirtualKeyCode:36});
  await c.command('Input.dispatchKeyEvent',{type:'keyUp',key:'Home',code:'Home',windowsVirtualKeyCode:36});
@@ -317,8 +320,7 @@ export async function runEmptyBlockScenarios({c,load,settle,confirmed,results,sc
    assert(entered.focused,scenario.name+': real editor surface has focus');
    await holdWorkerGate();
    for(const char of scenario.opening)await c.command('Input.insertText',{text:char});
-   await c.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
-   await c.command('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+   await manualNewline();
    for(const char of scenario.closing)await c.command('Input.insertText',{text:char});
    await c.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Home',code:'Home',windowsVirtualKeyCode:36});
    await c.command('Input.dispatchKeyEvent',{type:'keyUp',key:'Home',code:'Home',windowsVirtualKeyCode:36});

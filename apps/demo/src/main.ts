@@ -5,6 +5,7 @@ import { createLazyKaTeXRenderer } from "../../../packages/editor/src/components
 import { displayShortcut } from "../../../packages/editor/src/component/shortcut-settings.js";
 import { createMermaidPlugin } from "../../../packages/editor/src/plugins/mermaid.js";
 import { createToolbarPlugin } from "../../../packages/editor/src/plugins/toolbar.js";
+import { sanitizeUrl } from "../../../packages/editor/src/components/common/dom-renderer.js";
 import logo from "../../../docs/assets/jot.svg?url";
 import { bindRuntimePanel } from "./runtime-panel.js";
 import { sample } from "./sample.js";
@@ -19,6 +20,12 @@ document.querySelector<HTMLLinkElement>("#app-icon")!.href = logo;
 
 const root = document.querySelector<HTMLElement>("#editor-root")!;
 const mode = document.querySelector<HTMLSelectElement>("#mode")!;
+const locale = document.querySelector<HTMLSelectElement>("#editor-locale")!;
+const localeStorageKey = "jot-demo.editor-locale";
+try {
+  const saved = localStorage.getItem(localeStorageKey);
+  if (saved === "zh-CN" || saved === "en") locale.value = saved;
+} catch { /* The selector also works without browser storage. */ }
 const dataset = document.querySelector<HTMLSelectElement>("#sample")!;
 const font = document.querySelector<HTMLSelectElement>("#font")!;
 const theme = document.querySelector<HTMLButtonElement>("#theme")!;
@@ -36,10 +43,19 @@ const fonts = {
   mono: 'ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace',
 } as const;
 let textPending = false;
+// The demo document lives for this page session. Keep binary data out of the Markdown.
+const imageUrls = new Map<string, string>();
 const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
 const editor = new MarkdownEditor({
   root,
   mode: "live-preview",
+  locale: locale.value,
+  saveImage(file) {
+    const destination = `./images/${imageUrls.size + 1}-${encodeURIComponent(file.name || "image")}`;
+    imageUrls.set(destination, URL.createObjectURL(file));
+    return { destination, alt: file.name || "图片" };
+  },
+  resolveImageSrc: destination => imageUrls.get(destination) ?? sanitizeUrl(destination, true),
   openShortcutSettings: () => shortcutsButton.click(),
   plugins: [
     createMermaidPlugin({
@@ -187,6 +203,13 @@ editor.subscribe(effect => {
   if (effect.documentPatch) textPending = editor.value !== editor.confirmedValue;
   if (effect.documentPatch || effect.analysis) updateStatus();
 });
+locale.addEventListener("change", () => {
+  editor.setLocale(locale.value);
+  try {
+    if (locale.value === "auto") localStorage.removeItem(localeStorageKey);
+    else localStorage.setItem(localeStorageKey, locale.value);
+  } catch { /* The current editor already has the selected language. */ }
+});
 let modeRequest = 0;
 mode.addEventListener("change", () => {
   const next = mode.value as MarkdownEditorMode;
@@ -262,6 +285,8 @@ window.addEventListener("beforeunload", () => {
   unsubscribeCommandHint();
   runtime.dispose();
   editor.dispose();
+  for (const url of imageUrls.values()) URL.revokeObjectURL(url);
+  imageUrls.clear();
   worker.terminate();
 });
 void editor.open().then(() => {

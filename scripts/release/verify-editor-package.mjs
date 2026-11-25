@@ -53,7 +53,7 @@ try {
   writeFileSync(resolve(consumer, "consumer.ts"), `
 ${entries.filter(entry => !entry.endsWith(".css")).map((entry, i) =>
   `import type * as PublicEntry${i} from ${JSON.stringify(entry)};`).join("\n")}
-import { MarkdownEditor, mountShortcutSettings, type EditorHistorySnapshot, type EditorLayoutStyle, type EditorTheme, type MarkdownEditorOptions } from "@jot-md/editor";
+import { MarkdownEditor, mountShortcutSettings, type EditorHistorySnapshot, type EditorLayoutStyle, type EditorTheme, type EditorTranslations, type MarkdownEditorOptions, type SaveEditorImage, type ConfirmedDocumentChange } from "@jot-md/editor";
 import { EditorDocumentSession, type AdapterEffect } from "@jot-md/editor/adapter";
 import { EditorCommandRegistry } from "@jot-md/editor/commands";
 import { TABLE_COMMAND } from "@jot-md/editor/table";
@@ -79,9 +79,16 @@ const theme: EditorTheme = { colors: { text: "#222", selection: null }, layout }
 const setTheme = (editor: MarkdownEditor): Promise<void> => editor.setTheme(theme);
 const ownsProjection = (session: EditorDocumentSession, effect: AdapterEffect, owner: symbol): boolean => session.ownsProjection(effect, owner);
 const initialTheme: EditorTheme | undefined = options.theme;
+const translations: EditorTranslations = { fr: { Bold: "Gras" } };
+function localize(editor: MarkdownEditor, panel: HTMLElement) {
+  editor.setLocale("auto");
+  const language: string = editor.locale;
+  return { language, settings: mountShortcutSettings(panel, editor.commands, editor.i18n) };
+}
+void localize;
 function reopenEditor(editor: MarkdownEditor, options: MarkdownEditorOptions): MarkdownEditor {
   const history: EditorHistorySnapshot | undefined = editor.captureHistory();
-  return new MarkdownEditor({ ...options, history });
+  return new MarkdownEditor({ ...options, history, locale: "fr", translations });
 }
 void layout;
 void setTheme;
@@ -122,6 +129,15 @@ void bindPanelFocus;
 const runExternalButton = (editor: MarkdownEditor) =>
   editor.canEdit && editor.executeCommand("format.bold", undefined, { preserveViewport: true });
 void runExternalButton;
+const saveImage: SaveEditorImage = file => ({ destination: "./images/" + file.name });
+function bindInputs(editor: MarkdownEditor) {
+  const stop = editor.onDocumentChange((change: ConfirmedDocumentChange) => void change.revision);
+  const stopCommand = editor.onCommandExecuted(event => void event.id);
+  if (editor.canExecuteCommand("insert.image")) editor.insertImage({ destination: "./chart.png", alt: "chart" });
+  return () => { stop(); stopCommand(); };
+}
+void saveImage;
+void bindInputs;
 void mermaidOptions;
 void CodeMirrorSource;
 void EditorEventObserver;

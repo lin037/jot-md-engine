@@ -238,7 +238,7 @@ export async function runKeyboardScenarios({ c, load, settle, confirmed, key, sc
   assert(announcement.found);
   assert.equal(announcement.selected, 'needle');
   assert.equal(announcement.line, 4002);
-  assert.match(announcement.text, /target needle on line 4002/u);
+  assert.match(announcement.text, /target needle 所在行 4002/u);
   await press('Escape');
   results.push({ case: 'keyboard-large-search-announcement', ...announcement });
 

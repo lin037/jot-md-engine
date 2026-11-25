@@ -70,6 +70,39 @@ try {
     close(pending.caret.left,after.caret.left,'caret horizontal position');
     close(pending.caret.top,after.caret.top,'caret vertical position');
   };
+  await load("\\[x+1\\]\n\ntail", 3);
+  assert.equal(await c.evaluate("!!view.contentDOM.querySelector('.jot-live-preview-source-math-block:not(.jot-live-preview-structural-line)')"),true);
+  await c.command('Input.insertText', {text:'y'});
+  await wait("editor.confirmedValue===editor.value");
+  assert.equal(await c.evaluate('editor.value'), "\\[xy+1\\]\n\ntail");
+  await load("\\[\\]\n\ntail", 2);
+  await c.command('Input.insertText', {text:'x'});
+  await wait("editor.confirmedValue===editor.value");
+  assert.equal(await c.evaluate('editor.value'), "\\[x\\]\n\ntail");
+  // '|' marks the initial caret. Hold the Worker across both keystrokes
+  // when Enter creates the row immediately before the heading marker.
+  for (const [initial, typed, heading] of [
+    ['|', '#', true], ['above\n|\nafter', '#', true],
+    ['above|', '\n#', true], ['above|\nafter', '\n#', true],
+    ['``` js begin\n|\n``` end', '#', false], ['``` js begin\ncode|\n``` end', '\n#', false],
+    ['\\[\n|\n\\]', '#', false], ['~~~js\n|\n~~~', '#', false],
+  ]) {
+    const position = initial.indexOf('|');
+    const source = initial.replace('|', '');
+    await load(source, position);
+    const {pending, after} = await capture(async () => {
+      if (typed.startsWith('\n')) await key('Enter');
+      await c.command('Input.insertText', {text:'#'});
+    });
+    assert.equal(pending.value, source.slice(0, position) + typed + source.slice(position));
+    assert.equal(pending.head, position + typed.length);
+    for (const phase of [pending, after]) {
+      const line = phase.rows.find(row => row.from === pending.head - 1);
+      assert(line);
+      assert.equal(line.classes.includes('jot-live-preview-source-heading'), heading);
+    }
+    if (heading) compareCaret(pending, after);
+  }
   for (const marker of ['-', '10.']) {
     const source='Alpha\n\n'+marker+' body\n\nTail', start=source.indexOf(marker);
     await load(source,source.indexOf('body')+4);

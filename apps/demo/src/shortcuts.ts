@@ -80,18 +80,19 @@ export function bindShortcuts(editor: MarkdownEditor): () => void {
     queueMicrotask(filterRows);
   });
 
+  const stopLocale = editor.i18n.subscribe(filterRows);
   search.addEventListener("input", filterRows);
   platformInput.addEventListener("change", () => {
     form?.dispose();
     usePlatform(platformInput.value === "mac" ? "mac" : "windows");
-    form = mountShortcutSettings(formHost, commands);
+    form = mountShortcutSettings(formHost, commands, editor.i18n);
     filterRows();
     try { localStorage.setItem(platformStorage, platform); }
     catch { status.textContent = "浏览器无法保存所选键位方案。"; }
   });
   trigger.addEventListener("click", () => {
     form?.dispose();
-    form = mountShortcutSettings(formHost, commands);
+    form = mountShortcutSettings(formHost, commands, editor.i18n);
     search.value = "";
     dialog.showModal();
     search.focus();
@@ -105,6 +106,7 @@ export function bindShortcuts(editor: MarkdownEditor): () => void {
   });
   return () => {
     unsubscribe();
+    stopLocale();
     form?.dispose();
   };
 }
