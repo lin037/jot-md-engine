@@ -1,6 +1,6 @@
 # @jot-md/editor
 
-**English** · [简体中文](README.zh-CN.md)
+**English** · [简体中文](https://github.com/lin037/jot-md-engine/blob/main/docs/zh-CN/guides/package.md)
 
 A framework-neutral, Rust/WebAssembly-powered Markdown editor component for the browser. CodeMirror 6 handles typing, IME composition, selections, and undo/redo on the main thread, while a Rust engine running inside a Web Worker parses Markdown incrementally and projects only the visible viewport.
 

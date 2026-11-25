@@ -10,7 +10,7 @@
 </p>
 <p align="center">
   <a href="https://lin037.github.io/jot-md-engine/"><strong>在线体验</strong></a> ·
-  <a href="packages/editor/README.zh-CN.md">组件接入指南</a> ·
+  <a href="docs/zh-CN/guides/package.md">组件接入指南</a> ·
   <a href="docs/zh-CN/README.md">完整文档</a>
 </p>
 <p align="center">
@@ -39,7 +39,7 @@ npm install @jot-md/editor
 import { MarkdownEditor } from "@jot-md/editor";
 ```
 
-[组件接入指南](packages/editor/README.zh-CN.md#快速开始vite--typescript)里有完整的 Vite 示例，从创建 Worker 到挂载编辑器都可以照着做。
+[组件接入指南](docs/zh-CN/guides/package.md#快速开始vite--typescript)里有完整的 Vite 示例，从创建 Worker 到挂载编辑器都可以照着做。
 
 ## 架构概览
 
@@ -99,7 +99,7 @@ flowchart LR
 
 | 主题 | 文档入口 |
 | --- | --- |
-| 组件 API、插件、国际化与打包 | [组件接入指南](packages/editor/README.zh-CN.md) |
+| 组件 API、插件、国际化与打包 | [组件接入指南](docs/zh-CN/guides/package.md) |
 | 编辑模式、快捷键、表格、大纲与保存 | [编辑器配置与交互](docs/zh-CN/guides/editor.md) |
 | 支持的 Markdown 语法与扩展规则 | [Markdown 方言说明](docs/zh-CN/guides/markdown.md) |
 | CSS 变量、排版指标与样式定制 | [主题与布局定制](docs/zh-CN/guides/theming.md) |

@@ -1,6 +1,6 @@
 # @jot-md/editor
 
-[English](README.md) · **简体中文**
+[English](../../../packages/editor/README.md) · **简体中文**
 
 面向浏览器环境的框架无关 Markdown 编辑器组件。主线程由 CodeMirror 6 处理输入、输入法组词、选区与撤销重做；独立的 Web Worker 运行 Rust/WebAssembly 引擎，负责增量语法解析与按视口投影渲染数据。
 
@@ -244,7 +244,7 @@ const editor = new MarkdownEditor({
 });
 ```
 
-词典键名使用英文原文（详见 [phrases.ts](src/core/phrases.ts)），支持 `$1`、`$2` 等占位符。
+词典键名使用英文原文（详见 [phrases.ts](../../../packages/editor/src/core/phrases.ts)），支持 `$1`、`$2` 等占位符。
 
 ## 多标签页撤销历史
 
@@ -276,7 +276,7 @@ await editor.setTheme({
 });
 ```
 
-字号、行高、内边距和代码换行方式请务必通过 `theme.layout` 或 `editor.setLayoutStyle()` 设置，确保离屏估算高度与实际 DOM 高度一致。外部字体加载完成后可调用 `await editor.invalidateLayout()` 重新测量。完整 CSS 变量与类名见 [主题与布局定制](../../docs/zh-CN/guides/theming.md)。
+字号、行高、内边距和代码换行方式请务必通过 `theme.layout` 或 `editor.setLayoutStyle()` 设置，确保离屏估算高度与实际 DOM 高度一致。外部字体加载完成后可调用 `await editor.invalidateLayout()` 重新测量。完整 CSS 变量与类名见 [主题与布局定制](theming.md)。
 
 ## 事件与子路径导出
 
@@ -331,6 +331,6 @@ export default {
 
 ## 延伸阅读
 
-- [编辑器交互与配置](../../docs/zh-CN/guides/editor.md)
-- [Markdown 方言与扩展语法](../../docs/zh-CN/guides/markdown.md)
-- [主题与布局定制](../../docs/zh-CN/guides/theming.md)
+- [编辑器交互与配置](editor.md)
+- [Markdown 方言与扩展语法](markdown.md)
+- [主题与布局定制](theming.md)

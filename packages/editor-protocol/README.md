@@ -1,6 +1,6 @@
 # @jot-md/editor-protocol
 
-**English** · [简体中文](README.zh-CN.md)
+**English** · [简体中文](https://github.com/lin037/jot-md-engine/blob/main/docs/zh-CN/architecture/protocol-package.md)
 
 Internal workspace package defining TypeScript wire types and protocol constants shared between the Jot main-thread adapter, Web Worker runtime, and Rust/Wasm engine (`crates/editor-protocol`). Current protocol version: **1**.
 

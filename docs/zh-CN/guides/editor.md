@@ -2,7 +2,7 @@
 
 [English](../../guides/editor.md) · **简体中文**
 
-本文介绍 `MarkdownEditor` 的编辑模式、键盘快捷键、搜索替换、表格操作、标题折叠、大纲导航、焦点切换与安全保存机制。安装与插件接入示例见[组件接入指南](../../../packages/editor/README.zh-CN.md)。
+本文介绍 `MarkdownEditor` 的编辑模式、键盘快捷键、搜索替换、表格操作、标题折叠、大纲导航、焦点切换与安全保存机制。安装与插件接入示例见[组件接入指南](package.md)。
 
 ## 编辑模式
 
@@ -50,7 +50,7 @@ editor.commands.configureShortcuts({
 
 - **任务列表**：选中行后按 `Ctrl+Shift+9`（`format.task-list`）添加或移除任务标记；光标位于任务项或其续行时，按 `⌘⌥Enter` / `Ctrl+Alt+Enter`（`task.toggle-checked`）或直接在即时预览中点击复选框即可切换完成状态。
 - **重排有序列表编号**：在有序列表项内通过命令面板或工具栏执行 `list.renumber`，即可从首项序号开始自动顺延编号（例如 `9) A / 2) B / 2) C` 变为 `9) A / 10) B / 11) C`），同时保留原有分隔符与嵌套结构，支持一次撤销。
-- **图片处理**：通过 `MarkdownEditorOptions.saveImage` 接入持久化上传或落盘逻辑，详见[图片粘贴与插入](../../../packages/editor/README.zh-CN.md#图片粘贴与插入)。
+- **图片处理**：通过 `MarkdownEditorOptions.saveImage` 接入持久化上传或落盘逻辑，详见[图片粘贴与插入](package.md#图片粘贴与插入)。
 
 ## 表格交互与列宽
 

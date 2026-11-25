@@ -2,7 +2,7 @@
   "name": "@lin037/jot-md-engine",
   "version": "0.4.0",
   "license": "MIT",
-  "description": "Framework-neutral Markdown editor component backed by the Jot Rust/Wasm engine",
+  "description": "Embeddable Markdown editor with live preview, editable tables, and viewport-based rendering for large documents. Built with CodeMirror 6 and a Rust/Wasm Web Worker.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/lin037/jot-md-engine.git",
@@ -123,6 +123,14 @@
     "editor",
     "codemirror",
     "wasm",
-    "rust"
+    "rust",
+    "markdown-editor",
+    "live-preview",
+    "web-worker",
+    "typescript",
+    "virtual-scroll",
+    "markdown-tables",
+    "katex",
+    "mermaid"
   ]
 }

@@ -4,7 +4,7 @@
 
 ## 使用编辑器
 
-- [组件接入指南（`@jot-md/editor`）](../../packages/editor/README.zh-CN.md) — 安装、快速开始、插件、国际化与 API 清单
+- [组件接入指南（`@jot-md/editor`）](guides/package.md) — 安装、快速开始、插件、国际化与 API 清单
 - [编辑器配置与交互](guides/editor.md) — 编辑模式、快捷键、搜索替换、表格、大纲、焦点导航与安全保存
 - [Markdown 方言与扩展语法](guides/markdown.md) — 支持的语法、代码围栏、引用嵌套与列表续行规则
 - [主题与排版定制](guides/theming.md) — CSS 变量、排版指标、大纲样式与样式隔离原则

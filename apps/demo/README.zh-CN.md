@@ -24,4 +24,4 @@ pnpm run demo:dev
 | `pnpm run demo:build` | 构建可静态托管的站点产物至 `dist/demo/`（使用相对路径 `./`） |
 | `pnpm run test:browser demo` | 运行 Demo 浏览器自动化检查（模式切换、Mermaid 视口与 1 MiB 混合文档） |
 
-如需在自己的项目中接入组件，请参阅[组件接入指南](../../packages/editor/README.zh-CN.md)。
+如需在自己的项目中接入组件，请参阅[组件接入指南](../../docs/zh-CN/guides/package.md)。
