@@ -1,10 +1,10 @@
-name: Publish npm packages
+name: Publish npm package
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version in both package.json files (for example 0.1.1)
+        description: Public package version (for example 0.1.1)
         required: true
         type: string
 
@@ -14,52 +14,42 @@ permissions:
 concurrency: npm-publish
 
 jobs:
-  build:
-    name: Verify release artifacts
+  ci:
+    name: Find verified main artifacts
     if: github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    permissions:
+      actions: read
+    outputs:
+      run: ${{ steps.ci.outputs.run }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-web
-      - name: Check release metadata
+      - id: ci
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          node --input-type=module <<'JS'
-          import { readFileSync } from 'node:fs';
-          import assert from 'node:assert/strict';
-
-          const expectedRepository = `https://github.com/${process.env.GITHUB_REPOSITORY}`;
-          const version = process.env.RELEASE_VERSION;
-          assert.match(version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/, 'Enter a stable version such as 0.1.1');
-          for (const name of ['editor-protocol', 'editor']) {
-            const pkg = JSON.parse(readFileSync(`packages/${name}/package.json`, 'utf8'));
-            assert.equal(pkg.version, version, pkg.name);
-            const url = pkg.repository?.url?.replace(/^git\+/, '').replace(/\.git$/, '');
-            assert.equal(url, expectedRepository, `Set the repository URL for ${pkg.name}`);
-          }
-          JS
-      - run: pnpm run package:verify
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: npm-packages
-          path: |
-            dist/packages/*.tgz
-            dist/packages/manifest.json
-          if-no-files-found: error
+          run=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            -f head_sha="$GITHUB_SHA" -f branch="$GITHUB_REF_NAME" -f event=push -f status=success \
+            --jq '.workflow_runs[0].id // empty')
+          if [ -z "$run" ]; then
+            echo "No successful main CI run for $GITHUB_SHA" >&2
+            exit 1
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
 
   publish:
-    name: Publish verified packages
-    needs: build
+    name: Publish verified package
+    needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: npm
     permissions:
+      actions: read
+      contents: read
       id-token: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
@@ -67,37 +57,11 @@ jobs:
           package-manager-cache: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          name: npm-packages
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.ci.outputs.run }}
+          name: jot-editor-package
           path: release
-      - name: Publish protocol, then editor
-        run: |
-          node --input-type=module <<'JS'
-          import { execFileSync } from 'node:child_process';
-          import { createHash } from 'node:crypto';
-          import { readFileSync } from 'node:fs';
-          import assert from 'node:assert/strict';
-
-          const { packages } = JSON.parse(readFileSync('release/manifest.json', 'utf8'));
-          assert.deepEqual(packages.map(pkg => pkg.name), ['@jot-md/editor-protocol', '@jot-md/editor']);
-
-          const pending = [];
-          for (const { name, version, filename, integrity } of packages) {
-            assert.equal(filename, `${name.slice(1).replace('/', '-')}-${version}.tgz`);
-            const tarball = `release/${filename}`;
-            const digest = createHash('sha512').update(readFileSync(tarball)).digest('base64');
-            assert.equal(`sha512-${digest}`, integrity, tarball);
-
-            const url = `https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`;
-            const entry = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-            if (entry.status === 404) {
-              pending.push(tarball);
-              continue;
-            }
-            assert(entry.ok, `Could not check ${name}@${version}: HTTP ${entry.status}`);
-            assert.equal((await entry.json()).dist.integrity, integrity, `${name}@${version} already has different contents`);
-            console.log(`${name}@${version} is already published with the same integrity`);
-          }
-          for (const tarball of pending) {
-            execFileSync('npm', ['publish', tarball, '--access', 'public', '--ignore-scripts'], { stdio: 'inherit' });
-          }
-          JS
+      - name: Check integrity and publish
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node scripts/release/publish-editor-package.mjs release "$RELEASE_VERSION"

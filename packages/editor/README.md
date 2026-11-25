@@ -1,4 +1,4 @@
-# @jot-md/editor
+# @lin037/jot-md-engine
 
 Jot 是一个浏览器 Markdown 编辑器。CodeMirror 处理键盘输入、选区和撤销，Rust 在独立的 Worker 中解析文档。同一份源码可以原位编辑、只读预览，也可以左右对照。
 
@@ -7,8 +7,10 @@ Jot 是一个浏览器 Markdown 编辑器。CodeMirror 处理键盘输入、选�
 在应用目录中安装编辑器。下面用 Vite 和 TypeScript 举例。
 
 ```sh
-npm install https://github.com/lin037/jot-md-engine/releases/download/v0.3.1/jot-md-editor-0.3.1.tgz
+npm install @lin037/jot-md-engine
 ```
+
+从 v0.3.1 的 GitHub 附件升级时，请将已有导入路径的包名前缀从 `@jot-md/editor` 改为 `@lin037/jot-md-engine`，各子路径保持一致。
 
 在 `index.html` 为编辑器留出高度，并加载主线程入口。
 
@@ -20,18 +22,18 @@ npm install https://github.com/lin037/jot-md-engine/releases/download/v0.3.1/jot
 在 `src/editor.worker.ts` 中加载包内的 Wasm。打包工具需要支持模块 Worker，并能为 Wasm 文件生成可访问的 URL。使用 Vite 构建静态站点时，将 `worker.format` 设为 `"es"`。
 
 ```ts
-import { bootstrapEditorWorker } from "@jot-md/editor/worker";
+import { bootstrapEditorWorker } from "@lin037/jot-md-engine/worker";
 
 void bootstrapEditorWorker({
   endpoint: self,
-  loadWasm: () => import("@jot-md/editor/wasm"),
+  loadWasm: () => import("@lin037/jot-md-engine/wasm"),
 });
 ```
 
 在 `src/main.ts` 中创建编辑器实例。
 
 ```ts
-import { MarkdownEditor, type MarkdownEditorOptions } from "@jot-md/editor";
+import { MarkdownEditor, type MarkdownEditorOptions } from "@lin037/jot-md-engine";
 
 type DocumentId = MarkdownEditorOptions["session"]["documentId"];
 
@@ -108,7 +110,7 @@ languageSelect.addEventListener("change", () => editor.setLocale(languageSelect.
 表格导航、文本格式、块结构、搜索和替换通过命令注册表执行。用 `editor.openCommandPalette()` 查看命令，`editor.commands.shortcuts` 读取当前平台上的绑定。应用可挂载现成的设置面板，让用户修改和恢复快捷键。
 
 ```ts
-import { mountShortcutSettings } from "@jot-md/editor/component";
+import { mountShortcutSettings } from "@lin037/jot-md-engine/component";
 
 const settings = mountShortcutSettings(settingsElement, editor.commands, editor.i18n);
 // 面板卸载时调用 settings.dispose()。
@@ -163,7 +165,7 @@ stop();
 给 `MarkdownEditor` 传入 `saveImage(file, { source, signal })`。粘贴图片文件或通过「插入图片」选取文件时，组件调用它。宿主决定重命名、写入目录或上传到 OSS，再返回要写进 Markdown 的 `destination` 和可选的 `alt`。省略说明时使用文件名。默认工具栏的图片按钮支持填写图片地址，配置保存钩子后也可选择本地文件。图片插在光标处，选中文字时会替换选区。已经有地址时，可直接调用 `editor.insertImage({ destination, alt })`。
 
 ```ts
-import { MarkdownEditor, type SaveEditorImage } from "@jot-md/editor";
+import { MarkdownEditor, type SaveEditorImage } from "@lin037/jot-md-engine";
 
 const saveImage: SaveEditorImage = async (file, { signal }) => {
   // upload 是应用的上传接口，返回持久地址，例如 OSS URL 或 ./images/照片.png。
@@ -218,7 +220,7 @@ const unbindProperties = editor.registerFocusTarget("focus.properties", properti
 
 ## 样式和布局
 
-默认样式随组件注入。要由应用统一加载编辑器样式，可导入 `@jot-md/editor/styles.css`，并在构造选项中设置 `installStyles: false`。只需基础样式时可改用 `@jot-md/editor/core.css`。
+默认样式随组件注入。要由应用统一加载编辑器样式，可导入 `@lin037/jot-md-engine/styles.css`，并在构造选项中设置 `installStyles: false`。只需基础样式时可改用 `@lin037/jot-md-engine/core.css`。
 
 ```ts
 await editor.setTheme({
@@ -232,13 +234,13 @@ await editor.setLayoutStyle({ codeBlockWrap: "wrap" });
 
 ## 可选功能
 
-- **公式**。从 `@jot-md/editor/math/lazy` 导入 `createLazyKaTeXRenderer`，把 `createLazyKaTeXRenderer()` 传给 `surface.renderMath`。KaTeX 首次遇到公式时才加载。同步版本位于 `@jot-md/editor/math`。两种方式都需要 `math.css` 或已包含公式样式的 `styles.css`。
-- **Mermaid**。从 `@jot-md/editor/mermaid` 导入 `createMermaidPlugin`，把插件加入 `plugins`。应用提供 `load` 函数加载自己的 Mermaid 依赖，渲染器只处理标记为 Mermaid 的代码块。
-- **标题折叠**。从 `@jot-md/editor/heading-fold` 导入 `createHeadingFoldPlugin`，把 `createHeadingFoldPlugin()` 加入 `plugins`。点击标题旁的按钮可以折叠章节。macOS 默认按 Control–Shift–O，其他平台按 Ctrl–Alt–F。折叠状态只影响显示，源文本完整保留。
-- **编辑工具栏**。从 `@jot-md/editor/toolbar` 导入 `createToolbarPlugin`，把 `createToolbarPlugin()` 加入 `plugins`。工具栏用图标提供撤销、重做、正文格式、搜索和命令面板。标题菜单支持 H1–H6。表格可点选格子，也可输入行列数，行数包含表头（1–100 行、1–50 列）。只读时禁用修改正文的按钮，搜索仍可用。宿主也可用 `editor.insertTable({ rows: 4, columns: 3 })` 在当前选区插入指定尺寸的表格。
+- **公式**。从 `@lin037/jot-md-engine/math/lazy` 导入 `createLazyKaTeXRenderer`，把 `createLazyKaTeXRenderer()` 传给 `surface.renderMath`。KaTeX 首次遇到公式时才加载。同步版本位于 `@lin037/jot-md-engine/math`。两种方式都需要 `math.css` 或已包含公式样式的 `styles.css`。
+- **Mermaid**。从 `@lin037/jot-md-engine/mermaid` 导入 `createMermaidPlugin`，把插件加入 `plugins`。应用提供 `load` 函数加载自己的 Mermaid 依赖，渲染器只处理标记为 Mermaid 的代码块。
+- **标题折叠**。从 `@lin037/jot-md-engine/heading-fold` 导入 `createHeadingFoldPlugin`，把 `createHeadingFoldPlugin()` 加入 `plugins`。点击标题旁的按钮可以折叠章节。macOS 默认按 Control–Shift–O，其他平台按 Ctrl–Alt–F。折叠状态只影响显示，源文本完整保留。
+- **编辑工具栏**。从 `@lin037/jot-md-engine/toolbar` 导入 `createToolbarPlugin`，把 `createToolbarPlugin()` 加入 `plugins`。工具栏用图标提供撤销、重做、正文格式、搜索和命令面板。标题菜单支持 H1–H6。表格可点选格子，也可输入行列数，行数包含表头（1–100 行、1–50 列）。只读时禁用修改正文的按钮，搜索仍可用。宿主也可用 `editor.insertTable({ rows: 4, columns: 3 })` 在当前选区插入指定尺寸的表格。
 
 ```ts
-import { createToolbarPlugin } from "@jot-md/editor/toolbar";
+import { createToolbarPlugin } from "@lin037/jot-md-engine/toolbar";
 
 const editor = new MarkdownEditor({
   root,
@@ -293,15 +295,15 @@ boldButton.addEventListener("click", () => {
 
 自建表格选择器可调用 `editor.insertTable({ rows, columns }, { preserveViewport: true })`，搜索按钮可调用 `editor.openSearch()`。快捷键设置包含所有已注册命令，未分配的快捷键可以直接填写。也可以用 `editor.commands.configureShortcuts({ "toolbar.open-table": "Mod-Alt-t", "format.strikethrough": "Mod-Alt-s" })` 配置。选择器命令是 `toolbar.open-heading`、`toolbar.open-table`、`toolbar.open-image` 和 `toolbar.open-more`。
 
-需要直接管理会话或观察渲染耗时时，可分别从 `@jot-md/editor/adapter` 和 `@jot-md/editor/observability` 导入对应接口。自定义输入、预览和 Worker 时使用 `/source`、`/preview`、`/render`、`/worker` 子路径。
+需要直接管理会话或观察渲染耗时时，可分别从 `@lin037/jot-md-engine/adapter` 和 `@lin037/jot-md-engine/observability` 导入对应接口。自定义输入、预览和 Worker 时使用 `/source`、`/preview`、`/render`、`/worker` 子路径。
 
 
 ### 文档大纲
 
-大纲按正文标题的层级显示目录，点击标题可跳到正文。使用提供 `@jot-md/editor/outline` 入口的编辑器版本，在侧栏、抽屉或其他位置准备一个容器，例如 `<aside id="outline"></aside>`。
+大纲按正文标题的层级显示目录，点击标题可跳到正文。使用提供 `@lin037/jot-md-engine/outline` 入口的编辑器版本，在侧栏、抽屉或其他位置准备一个容器，例如 `<aside id="outline"></aside>`。
 
 ```ts
-import { mountOutline } from "@jot-md/editor/outline";
+import { mountOutline } from "@lin037/jot-md-engine/outline";
 
 const sidebar = document.querySelector<HTMLElement>("#outline")!;
 const outline = mountOutline(sidebar, editor);
