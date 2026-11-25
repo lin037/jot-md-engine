@@ -34,6 +34,8 @@ pnpm run package:verify
 
 ## 部署 Demo
 
+GitHub 运行器异常时，可从 **Actions → CI → Run workflow** 选择 `main`，对当前提交重新执行完整测试、打包和 Pages 部署。发布工作流可以复用该提交通过的自动或手动 CI 归档。
+
 在 **Settings → Pages** 将 Source 设置为 **GitHub Actions**，然后在 **Settings → Secrets and variables → Actions → Variables** 添加 `DEPLOY_DEMO=true`。可以把 `github-pages` 环境限制为默认分支。默认分支下次推送且 CI 通过时，会将 `dist/demo/` 部署到 GitHub Pages。Demo 使用相对资源路径，可部署在仓库子路径。
 
 [GitHub Pages 发布源设置](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)

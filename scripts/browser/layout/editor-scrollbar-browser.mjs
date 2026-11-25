@@ -49,7 +49,31 @@ try{
   assert.equal(await c.evaluate('probe.stage'),'opened',JSON.stringify(await c.evaluate('probe.errors')));
   await wait(`(()=>{const b=editor.session.adapter.blocks.blocks;return editor.session.adapter.analysis?.state==='pending'&&b.some(x=>x.kind==='unloaded')&&b.some(x=>x.kind!=='unloaded')})()`,60000);
   await wait(`!![...document.querySelectorAll('.jot-direct-scrollbar')].find(n=>getComputedStyle(n).display!=='none')`);
-  const snapshot=()=>c.evaluate(`(()=>{const d=view.scrollDOM,p=d.getBoundingClientRect(),t=[...document.querySelectorAll('.jot-direct-scrollbar')].find(n=>getComputedStyle(n).display!=='none'),b=t.querySelector('.jot-direct-scrollbar__thumb'),tr=t.getBoundingClientRect(),br=b.getBoundingClientRect(),line=view.lineBlockAtHeight(d.scrollTop+view.documentPadding.top),blocks=editor.session.adapter.blocks.blocks;return{scroll:d.scrollTop,max:Math.max(0,d.scrollHeight-d.clientHeight),head:view.state.selection.main.head,doc:view.state.doc.length,sourceAt:line.from,analysis:editor.session.adapter.analysis?.state,loaded:blocks.filter(x=>x.kind!=='unloaded').length,blocks:blocks.length,track:{top:tr.top,bottom:tr.bottom,left:tr.left,right:tr.right,thumbTop:br.top,thumbBottom:br.bottom,value:Number(t.getAttribute('aria-valuenow')),max:Number(t.getAttribute('aria-valuemax'))},visible:[...view.contentDOM.querySelectorAll('.cm-line,.jot-live-preview-widget--block')].filter(n=>{const r=n.getBoundingClientRect();return r.height>0&&r.bottom>p.top&&r.top<p.bottom}).slice(0,10).map(n=>({text:n.textContent.slice(0,60),class:n.className}))}})()`);
+  const readSnapshot = `(() => {
+    const pane = view.scrollDOM, bounds = pane.getBoundingClientRect();
+    const track = [...document.querySelectorAll('.jot-direct-scrollbar')].find(node => getComputedStyle(node).display !== 'none');
+    if (!track) return null;
+    const box = track.getBoundingClientRect();
+    const thumb = track.querySelector('.jot-direct-scrollbar__thumb').getBoundingClientRect();
+    const line = view.lineBlockAtHeight(pane.scrollTop + view.documentPadding.top);
+    const blocks = editor.session.adapter.blocks.blocks;
+    return {
+      scroll: pane.scrollTop, max: Math.max(0, pane.scrollHeight - pane.clientHeight),
+      head: view.state.selection.main.head, doc: view.state.doc.length, sourceAt: line.from,
+      analysis: editor.session.adapter.analysis?.state,
+      loaded: blocks.filter(block => block.kind !== 'unloaded').length, blocks: blocks.length,
+      track: {
+        top: box.top, bottom: box.bottom, left: box.left, right: box.right,
+        thumbTop: thumb.top, thumbBottom: thumb.bottom,
+        value: Number(track.getAttribute('aria-valuenow')), max: Number(track.getAttribute('aria-valuemax')),
+      },
+      visible: [...view.contentDOM.querySelectorAll('.cm-line,.jot-live-preview-widget--block')].filter(node => {
+        const rect = node.getBoundingClientRect();
+        return rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom;
+      }).slice(0, 10).map(node => ({ text: node.textContent.slice(0, 60), class: node.className })),
+    };
+  })()`;
+  const snapshot = () => c.evaluate(readSnapshot);
   const initial=await snapshot();
   assert(initial.track.thumbBottom>initial.track.thumbTop,'the initial scrollbar has a measurable thumb');
   const pane=await c.evaluate(`(()=>{const r=view.scrollDOM.getBoundingClientRect();return{x:(r.left+r.right)/2,y:(r.top+r.bottom)/2}})()`);
@@ -99,8 +123,11 @@ try{
   await wait(`editor.session.adapter.analysis?.state==='complete'`,180000);
   await wait(`(()=>{const t=[...document.querySelectorAll('.jot-direct-scrollbar')].find(n=>getComputedStyle(n).display!=='none');return !!t&&Number(t.getAttribute('aria-valuemax'))>0&&Number(t.getAttribute('aria-valuenow'))/Number(t.getAttribute('aria-valuemax'))>.12&&Number(t.getAttribute('aria-valuenow'))/Number(t.getAttribute('aria-valuemax'))<.55})()`,60000);
   await wait(`(()=>{const p=view.scrollDOM.getBoundingClientRect();return [...view.contentDOM.querySelectorAll('.cm-line,.jot-live-preview-widget--block')].some(n=>{const r=n.getBoundingClientRect();return r.height>0&&r.bottom>p.top&&r.top<p.bottom&&n.className.includes('jot-live-preview-')})})()`,60000);
-  await wait(`(()=>{const pane=view.scrollDOM,t=[...document.querySelectorAll('.jot-direct-scrollbar')].find(n=>getComputedStyle(n).display!=='none');return !!t&&Number(t.getAttribute('aria-valuemax'))===pane.scrollHeight-pane.clientHeight&&Math.abs(Number(t.getAttribute('aria-valuenow'))-pane.scrollTop)<=1})()`);
-  const confirmed=await snapshot();
+  // Capture the matching frame. A second CDP request may observe the next layout.
+  const confirmed = await wait(`(() => {
+    const sample = ${readSnapshot};
+    return sample && sample.track.max === sample.max && Math.abs(sample.track.value - sample.scroll) <= 1 && sample;
+  })()`);
   assert(Math.abs(confirmed.sourceAt-dragged.sourceAt)<confirmed.doc*.04,
     `analysis confirmation preserves the reader's approximate source position: ${JSON.stringify({dragged,confirmed})}`);
   assert.equal(confirmed.track.max,confirmed.max,'confirmation still exposes the native scroll range');

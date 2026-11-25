@@ -16,7 +16,7 @@ try {
   await waitForHttp(`http://127.0.0.1:${port}/`,15000);
   const fixture=`http://127.0.0.1:${port}/@fs${process.cwd()}/scripts/browser/support/editor-browser-fixture.html`;
   chrome=spawn(process.env.CHROME_BIN??findChrome(),['--headless=new','--no-first-run','--disable-background-networking',`--remote-debugging-port=${debugPort}`,`--user-data-dir=${profile}`,fixture],{stdio:['ignore','ignore','pipe']});
-  c=await connectCdp(await waitForChromePage(chrome,profile,debugPort,fixture,15000));
+  c=await connectCdp(await waitForChromePage(chrome,profile,debugPort,fixture));
   c.socket.addEventListener('message',event=>{const message=JSON.parse(String(event.data));if(message.method==='Runtime.exceptionThrown')errors.push(message.params.exceptionDetails.exception?.description??message.params.exceptionDetails.text)});
   await c.command('Runtime.enable');
   await c.command('Emulation.setDeviceMetricsOverride',{width:1300,height:900,deviceScaleFactor:1,mobile:false});

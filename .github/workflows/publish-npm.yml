@@ -28,8 +28,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           run=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
-            -f head_sha="$GITHUB_SHA" -f branch="$GITHUB_REF_NAME" -f event=push -f status=success \
-            --jq '.workflow_runs[0].id // empty')
+            -f head_sha="$GITHUB_SHA" -f branch="$GITHUB_REF_NAME" -f status=success \
+            --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")][0].id // empty')
           if [ -z "$run" ]; then
             echo "No successful main CI run for $GITHUB_SHA" >&2
             exit 1

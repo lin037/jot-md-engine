@@ -41,14 +41,14 @@ export async function waitForHttp(url, timeout) {
   throw new Error(`timed out waiting for ${url}`);
 }
 
-export async function waitForChromePage(chrome, profile, debugPort, url, timeout) {
+export async function waitForChromePage(chrome, profile, debugPort, url) {
   const portFile = join(profile, "DevToolsActivePort");
   const target = new URL(url).href;
   let stderr = "";
   let launchError;
   chrome.stderr?.on("data", (chunk) => { stderr = (stderr + chunk.toString()).slice(-4096); });
   chrome.once("error", (error) => { launchError = error; });
-  const deadline = Date.now() + timeout;
+  const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     if (launchError || chrome.exitCode !== null || chrome.signalCode !== null) break;
     // When Chrome selects its own port, the file belongs to this test's profile.
@@ -122,7 +122,8 @@ export async function connectCdp(url) {
 export async function waitForEvaluation(client, expression, timeout) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeout) {
-    if (await client.evaluate(expression)) return;
+    const value = await client.evaluate(expression);
+    if (value) return value;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`timed out waiting for browser expression: ${expression}`);
