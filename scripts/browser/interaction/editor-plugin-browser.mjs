@@ -228,6 +228,11 @@ try {
  assert(await c.evaluate(`!!document.querySelector('.jot-live-preview-strong')&&!document.querySelector('.jot-live-preview-source-math-block')`),'ordinary text keeps its preview and a new query releases the old math source');
  assert.equal(await c.evaluate('toolbarEditor.confirmedValue'),mathSearchSource,'search only changes selection and presentation');
  evidence.push({case:'search-literal-formula-delimiters-and-replacement-race'});
+ await c.evaluate(`for (const id of ['format.strikethrough','format.math','task.toggle-checked','list.renumber','insert.code-block','insert.math-block','insert.thematic-break']) {
+   toolbarEditor.commands.unregister(id);
+ }`);
+ assert(await c.evaluate(`${toolbarButton('toolbar.open-more')}.hidden && !${toolbarButton('toolbar.open-image')}.hidden`),
+   'a separate image picker must not leave an empty More menu in a reduced command registry');
  await c.evaluate(`disposeToolbarEditor();createToolbarEditor({className:'external-theme',groups:[['format.bold'],['search.open']],renderIcon(id,document){return id==='format.bold'?document.createTextNode('B'):undefined}});toolbarEditor.open()`);
  assert.deepEqual(await c.evaluate(`[...document.querySelectorAll('.external-theme [data-jot-toolbar-command]')].map(button=>[button.dataset.jotToolbarCommand,button.textContent])`),[['format.bold','B'],['search.open','']],'host can replace groups, icon and class');
  await c.evaluate(`disposeToolbarEditor();createToolbarEditor(null);toolbarEditor.open()`);
