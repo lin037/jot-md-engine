@@ -383,7 +383,7 @@ fn append_atom(
                 NodeKind::Image {
                     destination: destination.clone(),
                     title: title.clone(),
-                    alt: input.text()[label.clone()].to_owned(),
+                    alt: atom::unescape_punctuation(&input.text()[label.clone()]),
                 }
             } else {
                 NodeKind::Link {

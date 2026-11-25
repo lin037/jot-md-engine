@@ -81,7 +81,7 @@ export const MARKDOWN_EDITOR_CSS = `
   pointer-events: none;
 }
 .jot-editor-toolbar__picker {
-  --jot-toolbar-picker-accent: var(--jot-toolbar-accent, var(--jot-link-color, currentColor));
+  --jot-toolbar-picker-accent: var(--jot-toolbar-accent, var(--jot-link-color, #397066));
   --jot-toolbar-picker-rule: color-mix(in srgb, currentColor 16%, transparent);
   box-sizing: border-box;
   position: fixed;
@@ -110,9 +110,8 @@ export const MARKDOWN_EDITOR_CSS = `
 .jot-editor-toolbar__picker button:hover {
   background: color-mix(in srgb, currentColor 8%, transparent);
 }
-.jot-editor-toolbar__picker--heading button,
-.jot-editor-toolbar__picker--more button {
-  display: block;
+.jot-editor-toolbar__picker--heading button {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
   inline-size: 100%;
   min-inline-size: 144px;
   padding: 4px 12px;
@@ -124,10 +123,35 @@ export const MARKDOWN_EDITOR_CSS = `
   color: var(--jot-toolbar-picker-accent);
   background: color-mix(in srgb, var(--jot-toolbar-picker-accent) 12%, transparent);
 }
-.jot-editor-toolbar__picker--table { width: 264px; padding: 12px; }
+.jot-editor-toolbar__picker--more { inline-size: 252px; padding: 5px; }
+.jot-editor-toolbar__picker--more [role="group"] { padding: 3px; }
+.jot-editor-toolbar__picker--more [role="group"] + [role="group"] { border-block-start: 1px solid var(--jot-toolbar-picker-rule); }
+.jot-editor-toolbar__section { padding: 5px 8px 2px; font-size: 11px; color: color-mix(in srgb, currentColor 72%, transparent); }
+.jot-editor-toolbar__picker--more button {
+  display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 9px;
+  inline-size: 100%; min-block-size: 32px; padding: 4px 8px; text-align: start; font-weight: 400;
+}
+.jot-editor-toolbar__picker--more button svg { inline-size: 17px; block-size: 17px; }
+.jot-editor-toolbar__picker button:disabled { opacity: .46; background: transparent; cursor: default; }
+.jot-editor-toolbar__picker kbd { color: color-mix(in srgb, currentColor 72%, transparent); font: 11px/1.2 system-ui, sans-serif; }
+.jot-editor-toolbar__picker--table { width: 240px; padding: 12px; }
+.jot-editor-toolbar__picker--image { width: 276px; padding: 12px; }
+.jot-editor-toolbar__picker--image .jot-editor-toolbar__image-file {
+  width: 100%; padding: 8px; color: var(--jot-toolbar-picker-accent);
+  background: color-mix(in srgb, var(--jot-toolbar-picker-accent) 12%, transparent); font-weight: 600;
+}
+.jot-editor-toolbar__image-file + form {
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--jot-toolbar-picker-rule);
+}
+.jot-editor-toolbar__image-form { display: flex; align-items: end; gap: 6px; }
+.jot-editor-toolbar__image-form label { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.jot-editor-toolbar__image-form button { padding: 6px 9px; }
+.jot-editor-toolbar__table-heading { display: flex; align-items: baseline; justify-content: space-between; padding-block-end: 8px; }
+.jot-editor-toolbar__picker--table details { margin-block-start: 10px; border-block-start: 1px solid var(--jot-toolbar-picker-rule); }
+.jot-editor-toolbar__picker--table summary { padding-block: 8px 2px; cursor: pointer; }
+.jot-editor-toolbar__table-grid [role="row"] { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
 .jot-editor-toolbar__table-grid {
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 4px;
 }
 .jot-editor-toolbar__table-grid button {
@@ -139,11 +163,11 @@ export const MARKDOWN_EDITOR_CSS = `
   background: color-mix(in srgb, var(--jot-toolbar-picker-accent) 18%, transparent);
   border-color: var(--jot-toolbar-picker-accent);
 }
-.jot-editor-toolbar__table-size { text-align: center; padding-block: 6px; font-variant-numeric: tabular-nums; }
-.jot-editor-toolbar__table-form { display: grid; gap: 10px; border-block-start: 1px solid var(--jot-toolbar-picker-rule); padding-block-start: 8px; }
+.jot-editor-toolbar__table-size { color: var(--jot-toolbar-picker-accent); font-variant-numeric: tabular-nums; }
+.jot-editor-toolbar__table-form { display: grid; gap: 10px; padding-block-start: 8px; }
 .jot-editor-toolbar__dimensions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .jot-editor-toolbar__dimensions label { display: grid; gap: 3px; }
-.jot-editor-toolbar__dimensions input {
+.jot-editor-toolbar__dimensions input, .jot-editor-toolbar__image-form input {
   box-sizing: border-box;
   inline-size: 100%;
   padding: 5px 8px;

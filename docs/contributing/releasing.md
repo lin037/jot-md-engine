@@ -17,32 +17,20 @@ pnpm install --frozen-lockfile
 pnpm run package:verify
 ```
 
-`dist/packages/` 生成 `@jot-md/editor-protocol` 和 `@jot-md/editor` 的两个 `.tgz` 及 `manifest.json`。组件包含 JS、类型声明、样式和 Worker 所需的 Wasm。打包检查会拒绝 Demo 和基准目录，并在独立项目验证安装、公开入口、样式与 Worker 通信。只需生成归档时可运行 `pnpm run package:pack`。
+该命令在 `dist/release/` 生成一个公开包 `@lin037/jot-md-engine` 的归档和 `manifest.json`。归档包含 JS、类型声明、样式、Worker/Wasm 和内部协议依赖。验证会在空项目安装这个包，逐个导入公开入口，并启动真实 Worker 往返读写文档。
 
-GitHub Releases 使用 `pnpm run package:verify --standalone` 生成的单个归档，协议已随编辑器打入 `dist/release/`。也可以从 **Actions → CI → Run workflow** 下载 `jot-editor-package` 构建产物。
+## 发布 npm 与 GitHub Release
 
-## 首次发布
-
-1. 确认 npm 账号有权在 `@jot-md` scope 内发布。在两个包的 `package.json` 中填入真实的 `repository.url`，例如 `git+https://github.com/<owner>/<repo>.git`，并合并到默认分支。
-2. 从待发布的提交运行 `pnpm run package:verify`。登录 npm，按归档清单中的文件名先发布协议包，再发布组件。以下是版本为 `0.1.0` 时的命令。
+1. 在 PR 中更新 `packages/editor/package.json` 的版本。合并后，等对应的 `main` 提交通过完整 CI。在这次运行的 Artifacts 下载 `jot-editor-package` 并解压，其中的同一个 `.tgz` 用于 npm 和 GitHub Release。
+2. 首次发布由 npm 个人账号 `lin037` 授权。在该提交的检出目录中运行以下命令，将 `./release` 替换为解压目录。脚本会核对包名、版本和清单中的 SHA-512 后发布。重试时，注册表里内容一致的版本会被跳过。
 
    ```sh
    npm login
-   npm publish ./dist/packages/jot-md-editor-protocol-0.1.0.tgz --access public
-   npm publish ./dist/packages/jot-md-editor-0.1.0.tgz --access public
+   node scripts/release/publish-editor-package.mjs ./release 0.4.0
    ```
 
-3. 在两个 npm 包的 **Settings → Trusted Publisher** 分别绑定真实的 GitHub owner、仓库、工作流文件名 `publish-npm.yml` 和环境名 `npm`，允许直接发布。在 GitHub 的 **Settings → Environments** 创建 `npm`，将部署分支限制为默认分支，可按团队需要启用审批。
-
-[npm Trusted Publishing 设置](https://docs.npmjs.com/trusted-publishers/) · [npm 首次公开发布](https://docs.npmjs.com/generating-provenance-statements/)
-
-## 后续发布
-
-1. 在同一个 PR 中更新两个 npm 包的版本号，填写本次变更，通过 CI 并合并。
-2. 在 **Actions → Publish npm packages → Run workflow** 中选择默认分支，输入该版本。工作流重新构建并验证归档，然后用 OIDC 按协议包、组件的顺序发布。发布任务使用已验证的同一份归档。
-3. 检查两个版本在 npm 可见后，从对应提交创建 GitHub 版本标签和 Release。安装入口是 `npm install @jot-md/editor`，协议包会作为依赖安装。
-
-若协议包已发布而组件包失败，先处理权限或网络问题，再用 **Re-run failed jobs** 复用同一次运行的归档。发布任务仅跳过完整性匹配的已发布版本。若现有版本内容不同，修正后增加版本号再发布。
+3. 使用 `npm view @lin037/jot-md-engine@0.4.0 dist.integrity` 核对 npm 上的 SHA-512，并在空项目运行 `npm install @lin037/jot-md-engine`。从通过 CI 的同一提交创建版本标签和 GitHub Release，上传已核对的归档。
+4. 后续要使用 GitHub Actions 直接发布，可在 npm 包的 **Settings → Trusted Publisher** 登记 `lin037/jot-md-engine`、`publish-npm.yml` 和环境 `npm`，并在 GitHub 创建同名环境，将部署分支限制为 `main`。在 **Actions → Publish npm package** 选择 `main` 和版本号，工作流会按提交 SHA 下载通过 CI 的归档并用 OIDC 发布。[npm Trusted Publishing 设置](https://docs.npmjs.com/trusted-publishers/)
 
 ## 部署 Demo
 

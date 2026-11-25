@@ -36,6 +36,10 @@ import { quotedCodeLineAt, type QuotedCodeLine } from "./quoted-code-line.js";
 const wrapperNodeIds = new WeakMap<BlockWrapper, string>();
 const codeScrollWrappers = new WeakSet<BlockWrapper>();
 const codeCaretMeasureKey = {};
+const firstHeadingMarkerLine = Decoration.line({
+  class: "jot-live-preview-line jot-live-preview-native-block--heading jot-live-preview-source-heading",
+  attributes: { "data-jot-heading-level": "1" },
+});
 
 /** Temporary, locally proven presentation while the Worker confirms a pair. */
 export interface OptimisticEmptyFirstInput {
@@ -76,6 +80,7 @@ interface LivePreviewExtensionCallbacks {
   readonly onUpdate: (update: ViewUpdate) => void;
   readonly onKeyDown: (view: EditorView, event: KeyboardEvent) => boolean;
   readonly onBeforeInput: (view: EditorView, event: InputEvent) => boolean;
+  readonly onToggleTask?: (from: number) => boolean;
   readonly onWidgetActivate: (view: EditorView, from: number, to: number) => void;
   readonly onTransaction: (transaction: Transaction) => Transaction | readonly TransactionSpec[];
   readonly onComposition: (active: boolean, event: CompositionEvent, view: EditorView) => void;
@@ -102,7 +107,7 @@ export function createLivePreviewExtension(
     create: () => emptyState(),
     update(value, transaction) {
       let next = transaction.docChanged
-        ? mapUnaffectedDecorations(value, transaction)
+        ? mapUnaffectedDecorations(value, transaction, callbacks.isEnabled())
         : value;
       for (const effect of transaction.effects) {
         if (effect.is(setDecorations)) next = effect.value;
@@ -177,7 +182,7 @@ export function createLivePreviewExtension(
   return {
     extension,
     apply(view, plan, runtime) {
-      const next = decorationState(plan, runtime, callbacks.onWidgetActivate);
+      const next = decorationState(plan, runtime, callbacks.onWidgetActivate, callbacks.onToggleTask);
       const previous = view.state.field(field);
       const head = view.state.selection.main.head;
       const codeAppeared = !hasCodeScrollAt(previous.wrappers, head) && hasCodeScrollAt(next.wrappers, head);
@@ -252,6 +257,7 @@ function decorationState(
   plan: LivePreviewPlan,
   runtime: RenderRuntime,
   onWidgetActivate: LivePreviewExtensionCallbacks["onWidgetActivate"],
+  onToggleTask: LivePreviewExtensionCallbacks["onToggleTask"],
 ): DecorationState {
   const decorations: Array<Range<Decoration>> = [];
   const atomic: Array<Range<Decoration>> = [];
@@ -288,7 +294,7 @@ function decorationState(
         const widget = item.widget === undefined
           ? item.leadingQuoteMarker === true ? leadingQuoteMarkerWidget : undefined
           : item.widget.kind === "task-marker"
-          ? new TaskMarkerWidget(item.from, item.widget)
+          ? new TaskMarkerWidget(item.from, item.widget, onToggleTask)
           : new LivePreviewWidget(
             item.from,
             item.to,
@@ -347,9 +353,18 @@ function decorationState(
   };
 }
 
+function projectedLineAt(decorations: DecorationSet, position: number): Decoration | undefined {
+  let line: Decoration | undefined;
+  decorations.between(position, position, (from, _to, decoration) => {
+    if (from === position && decoration.spec.jotLiveSourceLine === true) line = decoration;
+  });
+  return line;
+}
+
 function mapUnaffectedDecorations(
   value: DecorationState,
   transaction: Transaction,
+  enabled: boolean,
 ): DecorationState {
   const quoteEdits = resolveOptimisticQuoteEdits(value.decorations, transaction);
   const codeLines = resolveOptimisticCodeLines(value.decorations, transaction);
@@ -531,6 +546,33 @@ function mapUnaffectedDecorations(
   const keepMapped = (from: number, to: number, decoration: Decoration): boolean =>
     isMappedSelection(decoration) ? !dirtyMappedRoots.has(decoration.spec.jotLiveNode as string) : keep(from, to, decoration);
   let decorations = value.decorations.map(transaction.changes).update({ filter: keepMapped });
+  // WebKit can keep painting the caret at the old font's advance until it
+  // blinks. Give a newly typed root '#' its heading metrics in the input edit.
+  const { doc, selection } = transaction.startState;
+  const at = selection.main.head;
+  const typedOne = edits.length === 1 && edits[0]!.from === at &&
+    edits[0]!.to === at && mappedEdits[0]!.to === at + 1;
+  if (enabled && typedOne && selection.ranges.length === 1 && selection.main.empty &&
+      transaction.annotation(Transaction.userEvent) === "input.type" &&
+      transaction.newDoc.sliceString(at, at + 1) === "#" && doc.lineAt(at).length === 0) {
+    const line = projectedLineAt(value.decorations, at);
+    const rootBlank = line?.spec.jotLiveStructuralOwners === undefined &&
+      String(line?.spec.class ?? "").includes("jot-md-blank-line");
+    // Enter can create an unprojected empty row after the last line of a
+    // projected root. A bare marker at either document edge is also outside
+    // any code or math fence, since this dialect requires both delimiters.
+    const previous = line === undefined && at > 0
+      ? projectedLineAt(value.decorations, doc.lineAt(at - 1).from)
+      : undefined;
+    const followsRoot = String(previous?.spec.class ?? "").includes("jot-live-preview-native-block--last");
+    if (at === 0 || at === doc.length || rootBlank || followsRoot) {
+      decorations = decorations.update({
+        filterFrom: at, filterTo: at + 1,
+        filter: (_from, _to, decoration) => decoration !== line,
+        add: [firstHeadingMarkerLine.range(at)],
+      });
+    }
+  }
   let atomic = value.atomic.map(transaction.changes).update({ filter: keep });
   const stableIndents = listIndents.filter(indent => !invalidatedNodes.has(indent.owner));
   if (stableIndents.length > 0) {

@@ -18,4 +18,4 @@ const request: RequestEnvelope = {
 - `AnalysisState` 表示解析进度、已确认范围或失败原因。`RenderPatch` 按请求的窗口返回 `RenderNode`。内容可以直接引用当前版本的源码，子节点也可以延后加载。
 - 表格列的内容统计随节点属性传输。列宽、字体、滚动位置和 DOM 测量由浏览器维护。
 
-使用现成的浏览器组件请安装 `@jot-md/editor`。直接实现消息端点时，前端请求编号使用 `0x00000000` 到 `0x7fffffff`，Worker 后台请求使用 `0x80000000` 到 `0xffffffff`。
+使用现成的浏览器组件请安装 `@lin037/jot-md-engine`。直接实现消息端点时，前端请求编号使用 `0x00000000` 到 `0x7fffffff`，Worker 后台请求使用 `0x80000000` 到 `0xffffffff`。

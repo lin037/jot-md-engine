@@ -7,7 +7,7 @@
   "packageManager": "pnpm@11.11.0",
   "scripts": {
     "build:protocol": "pnpm --filter @jot-md/editor-protocol run build",
-    "build:editor": "pnpm run build:protocol && pnpm --filter @jot-md/editor run build",
+    "build:editor": "pnpm run build:protocol && pnpm --filter @lin037/jot-md-engine run build",
     "package:pack": "node scripts/release/pack-editor.mjs",
     "package:verify": "node scripts/release/verify-editor-package.mjs",
     "wasm:demo": "node scripts/build/build-wasm.mjs apps/demo/src/generated",

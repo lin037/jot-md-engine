@@ -314,12 +314,16 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
   };
 
   const sourceCompanionIds = new Set<string>();
+  // An edge is an insertion point beside the image. Only its interior (or
+  // an explicitly revealed range) needs the editable Markdown and preview.
+  const editingImage = (range: TextRange): boolean => activeSourceRange !== undefined &&
+    range.from < activeSourceRange.to && activeSourceRange.from < range.to;
   const addSourceCompanionImages = (node: RenderNode): void => {
     let added = false;
     const visitImage = (candidate: RenderNode): void => {
       if (
         !added && candidate.kind === "image" && !sourceCompanionIds.has(candidate.id) && activeSourceRange !== undefined &&
-        rangesTouch(candidate.sourceRange, activeSourceRange)
+        editingImage(candidate.sourceRange)
       ) {
         const position = clamp(
           Number(node.sourceRange.to),
@@ -432,12 +436,16 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
       activeSourceRange.from === activeSourceRange.to &&
       Number(opening.from) <= activeSourceRange.from && activeSourceRange.from <= Number(opening.to);
     const content = rangeAttribute(node, "contentRange");
-    const showEmptyContent = content !== undefined && activeSourceRange !== undefined &&
-      activeSourceRange.from === activeSourceRange.to &&
-      Number(content.from) === Number(content.to) && Number(content.to) === Number(closing.from) &&
-      activeSourceRange.from === Number(content.from);
+    // Adjacent fences share their only body position with the closing line.
+    // Keep that numbered row even after the caret leaves the block.
+    const showEmptyContent = content !== undefined &&
+      content.from === content.to && content.to === closing.from &&
+      (node.kind === "fenced-code" || activeSourceRange?.from === Number(content.from) &&
+        activeSourceRange.to === activeSourceRange.from);
     if (!showOpening) replace(node, opening, undefined, true);
     replace(node, closing, undefined, true);
+    // Compact bracket math shares a line with its body: hide only the delimiters.
+    if (physicalLineStart(input.source, Number(opening.from)) === physicalLineStart(input.source, Number(closing.from))) return;
     if (showEmptyContent) {
       const from = physicalLineStart(input.source, Number(closing.from));
       addLineAt(node, from, "jot-live-preview-empty-container-line");
@@ -758,6 +766,10 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
       // CodeMirror edits physical lines even when several lines share a root.
       // Keep the rendered geometry of inline widgets on the other lines.
       if (isRenderSizedInline(child) && activeSourceRange !== undefined && !revealSyntax) {
+        if (child.kind === "image" && !editingImage(child.sourceRange) && !selectionTouches(child.sourceRange)) {
+          visit(child);
+          continue;
+        }
         activeSourceLines ??= physicalSourceLines(input.source, activeSourceRange);
         if (!rangesTouch(child.sourceRange, activeSourceLines) && !selectionTouches(child.sourceRange)) {
           visit(child);

@@ -1,3 +1,4 @@
+import { editorI18nAt } from "../../../core/i18n.js";
 import type {
   ProjectionSlice,
   RenderNode,
@@ -147,6 +148,7 @@ export class TableGrid implements TablePreviewComponent {
     this.#toolbar = runtime.options.onTableCommand === undefined
       ? undefined
       : createTableToolbar({
+          i18n: editorI18nAt(runtime.options.root),
           document: host.ownerDocument,
           tableId: node.id,
           resolveAnchor: () => runtime.options.resolveSelectionAnchor?.(
@@ -1103,7 +1105,7 @@ export class TableGrid implements TablePreviewComponent {
       cell.append(handle);
     }
     handle.dataset["jotColumnIndex"] = String(index);
-    handle.setAttribute("aria-label", `Resize table column ${index + 1}`);
+    editorI18nAt(this.#runtime.options.root).bind(handle, "aria-label", "Resize table column $1", index + 1);
   }
 
   #applyMountedColumnWidths(): void {

@@ -408,6 +408,10 @@ fn update_container_boundary(
         return Ok(None);
     }
     let new_line = physical_lines_covering(text, change.after)?;
+    if new_line.trim_start().starts_with("~~~") {
+        // Changing the run length can expose a closer in the body or an earlier opener.
+        return Ok(None);
+    }
     if matches!(container.kind, NodeKind::FencedCode { .. }) {
         let Some(closing) = boundaries.closing else {
             return Ok(None);
@@ -993,6 +997,17 @@ fn update_opaque_container(
     };
     let delta = i64::from(change.after.to - change.after.from)
         - i64::from(change.before.to - change.before.from);
+    if let NodeKind::MathBlock {
+        opening_range,
+        content_range,
+        ..
+    } = &container.kind
+        && opening_range.to == content_range.from
+    {
+        // The body shares a physical line with its delimiters. Edits may
+        // introduce an earlier closer, escape the closing slash or split the line.
+        return Ok(None);
+    }
     let shifted_existing_closer = container_boundaries(container)?
         .closing
         .and_then(|range| shift_offset(range.from, delta));
@@ -1102,7 +1117,13 @@ fn affected_lines_create_new_closer(
             }
             _ => return Err(ParseError::InvalidParserState),
         };
-        if is_closer && !is_existing_closer {
+        // A newly exposed delimiter inside this block can close an unmatched
+        // opener *before* the block, changing which container owns these lines.
+        let may_close_earlier = container.source_range.from > 0
+            && (super::block::closes_fenced_code(line)
+                || super::block::closes_math_block(line, &super::MathDelimiter::Bracket)
+                || super::block::closes_math_block(line, &super::MathDelimiter::Dollar));
+        if !is_existing_closer && (is_closer || may_close_earlier) {
             return Ok(true);
         }
         line_start = line_start
@@ -1816,6 +1837,7 @@ fn is_block_structural_byte(byte: u8) -> bool {
             | b'_'
             | b'|'
             | b'`'
+            | b'~'
             | b'$'
             | b'\\'
             | b'['

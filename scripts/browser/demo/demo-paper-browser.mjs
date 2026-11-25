@@ -2,6 +2,7 @@
 // Reading the view from its DOM tile is only an assertion aid; interactions
 // below use browser pointer, wheel and keyboard events.
 import assert from 'node:assert/strict';
+import { checkDemoImageInput } from './demo-image-input.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -33,6 +34,17 @@ try {
  assert.deepEqual(headings,[28,22],'default H1 and H2 follow the Demo type scale');
  const initialSource=await source();
  assert(initialSource.includes('![布局示意图](./pretext-layout.svg)'),'fixture contains a real image');
+ const localeValue = () => c.evaluate("document.querySelector('#editor-locale').value");
+ const toolbarBold = () => c.evaluate("document.querySelector('[data-jot-toolbar-command=\"format.bold\"]').ariaLabel");
+ assert.equal(await localeValue(), 'auto');
+ await choose('#editor-locale', 2);
+ assert.equal(await toolbarBold(), 'Bold');
+ await choose('#editor-locale', 1);
+ assert.equal(await toolbarBold(), '加粗');
+ await choose('#editor-locale', 0);
+ assert.equal(await c.evaluate("localStorage.getItem('jot-demo.editor-locale')"), null);
+ await choose('#editor-locale', 1);
+ assert.equal(await source(), initialSource, 'language controls preserve the article');
  const mac=await c.evaluate('/Mac|iPhone|iPad/u.test(navigator.platform)');
  const shortcutLabel=(name)=>c.evaluate(`document.querySelector('#shortcuts input[name="'+${JSON.stringify(name)}+'"]').value`);
  await click('#open-shortcuts');
@@ -54,6 +66,9 @@ try {
  await c.evaluate("window.workbenchBeforeReload = true");
  await c.command('Page.reload');
  await waitForEvaluation(c,"!window.workbenchBeforeReload && document.querySelector('#open-shortcuts')?.disabled===false",30000);
+ assert.equal(await localeValue(), 'zh-CN', 'manual component language survives reload');
+ assert.equal(await toolbarBold(), '加粗');
+ evidence.push({case:'component-language-selector'});
  await click('#open-shortcuts');
  assert.equal(await shortcutLabel('command.palette'), mac?'Control-Shift-y':'Ctrl-Shift-y');
  await click('#shortcut-dialog .panel-header button');
@@ -261,10 +276,12 @@ try {
  assert.equal(await c.evaluate(`document.querySelector('#insert').disabled`),false,'insert is enabled only after the editable mode is ready');
  assert.equal(await source(),initialSource,'mode changes preserve the document');
  await c.evaluate(`document.querySelector('#mode').focus()`);
- await c.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
- await c.command('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
- const focus=await c.evaluate(`(()=>{const e=document.activeElement,s=getComputedStyle(e);return{id:e.id,visible:e.matches(':focus-visible'),outline:s.outlineStyle,width:parseFloat(s.outlineWidth)}})()`);
- assert.equal(focus.id,'sample','Tab reaches the next control');assert(focus.visible&&focus.outline!=='none'&&focus.width>=2,'keyboard focus is visibly indicated');
+ for (const next of ['editor-locale', 'sample']) {
+   for (const type of ['keyDown', 'keyUp']) await c.command('Input.dispatchKeyEvent', {type, key:'Tab', code:'Tab', windowsVirtualKeyCode:9});
+   const focus = await c.evaluate(`(()=>{const e=document.activeElement,s=getComputedStyle(e);return{id:e.id,visible:e.matches(':focus-visible'),outline:s.outlineStyle,width:parseFloat(s.outlineWidth)}})()`);
+   assert.equal(focus.id, next, 'Tab reaches the next control');
+   assert(focus.visible && focus.outline !== 'none' && focus.width >= 2, 'keyboard focus is visibly indicated');
+ }
  // Exercise the bundled example through the same public component that is
  // used by consumers, including the real checkbox pointer interaction.
  const taskSampleIndex=await c.evaluate(`[...document.querySelector('#sample').options].findIndex(option=>option.value==='inline-task')`);
@@ -394,6 +411,8 @@ try {
  await wheel(-1600);await settle();
  assert(await c.evaluate(`document.querySelector('.cm-scroller').scrollTop`) < atBottom-500,
    'a new wheel gesture must cancel the temporary end anchor');
+ await checkDemoImageInput(c,click,profile);
+ evidence.push({case:'image-file-address-and-screenshot-paste'});
  assert.deepEqual(errors,[],'the browser reports no uncaught exceptions');
  evidence.push({case:'rapid-mode-selection',mode:'live-preview'});
  writeFileSync(resolve(output,'report.json'),JSON.stringify({passed:true,evidence},null,2));

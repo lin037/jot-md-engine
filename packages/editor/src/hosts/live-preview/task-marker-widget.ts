@@ -1,6 +1,8 @@
+import { editorI18nAt } from "../../core/i18n.js";
 import { isolateHistory } from "@codemirror/commands";
 import { EditorState } from "@codemirror/state";
 import { EditorView, WidgetType } from "@codemirror/view";
+import { toggleTaskMarker } from "../../components/list-actions.js";
 import { booleanAttribute } from "../../components/common/dom-renderer.js";
 import type { ComponentLivePreviewWidget } from "../../components/contracts.js";
 
@@ -12,7 +14,7 @@ export class TaskMarkerWidget extends WidgetType {
   readonly #from: number;
   readonly #checked: boolean;
 
-  constructor(from: number, descriptor: ComponentLivePreviewWidget) {
+  constructor(from: number, descriptor: ComponentLivePreviewWidget, private readonly toggle?: (from: number) => boolean) {
     super();
     this.#from = from;
     this.#checked = booleanAttribute(descriptor.node, "checked") === true;
@@ -26,7 +28,7 @@ export class TaskMarkerWidget extends WidgetType {
     const input = view.dom.ownerDocument.createElement("input");
     input.type = "checkbox";
     input.className = "jot-task-checkbox jot-live-preview-task-checkbox";
-    input.setAttribute("aria-label", "任务状态");
+    editorI18nAt(view.dom).bind(input, "aria-label", "Task status");
     input.addEventListener("mousedown", (event) => event.stopPropagation());
     input.addEventListener("change", () => {
       const state = owners.get(input);
@@ -44,11 +46,15 @@ export class TaskMarkerWidget extends WidgetType {
       }
       const value = input.checked ? "x" : " ";
       if (marker[1] === value || (input.checked && marker[1] === "X")) return;
-      current.dispatch({
-        changes: { from: from + 1, to: from + 2, insert: value },
-        annotations: isolateHistory.of("full"),
-        userEvent: "input",
-      });
+      if (this.toggle) {
+        if (!this.toggle(from)) { input.checked = !input.checked; return; }
+      } else {
+        const result = toggleTaskMarker(marker, 0);
+        const edit = result?.edits?.[0];
+        if (!edit) return;
+        current.dispatch({ changes: { from: from + edit.range.from, to: from + edit.range.to, insert: edit.insert },
+          annotations: isolateHistory.of("full"), userEvent: result!.userEvent });
+      }
       current.focus();
     });
     this.updateDOM(input, view);

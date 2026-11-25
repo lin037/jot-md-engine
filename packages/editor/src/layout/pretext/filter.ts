@@ -19,6 +19,7 @@ import {
   stringsAttribute,
   type ImageMetadataResolver,
 } from "../../components/common/dom-renderer.js";
+import { formatPhrase } from "../../core/phrases.js";
 import { defaultMarkdownComponentRegistry } from "../../components/registry.js";
 import { quotePrefix } from "../../components/common/quote-prefix.js";
 import { DEFAULT_QUOTE_MIN_CONTENT_WIDTH, quoteContentWidth } from "../quote-geometry.js";
@@ -219,7 +220,7 @@ export class PreTextProjectionFilter
           estimatedHeight: boxHeight + input.context.metrics.blockGap,
           boxHeight,
           blockGap: input.context.metrics.blockGap,
-          label: componentLabel(node),
+          label: preTextLabel(node),
           contentText,
           sourcePreview: collapsePreview(stats.preview),
           sourcePreviewTruncated: stats.preview.length < stats.utf16Length,
@@ -792,16 +793,16 @@ function componentFamily(kind: string, strategy: string): string {
   return kind;
 }
 
-function componentLabel(node: RenderNode): string {
-  if (node.kind === "heading") return `Heading ${numberAttribute(node, "level") ?? 1}`;
+export function preTextLabel(node: RenderNode, t = formatPhrase): string {
+  if (node.kind === "heading") return t(`Heading ${numberAttribute(node, "level") ?? 1}`);
   if (node.kind === "table") {
-    return `Table · ${node.childCount} rows × ${stringsAttribute(node, "alignments").length} cols`;
+    return t("Table · $1 rows × $2 cols", node.childCount, stringsAttribute(node, "alignments").length);
   }
   if (node.kind === "fenced-code") {
     const language = stringAttribute(node, "language");
-    return language === undefined ? "Code block" : `Code block · ${language}`;
+    return language === undefined ? t("Code block") : t("Code block · $1", language);
   }
-  return node.kind.replaceAll("-", " ");
+  return t(node.kind.replaceAll("-", " "));
 }
 
 function collapsePreview(value: string): string {

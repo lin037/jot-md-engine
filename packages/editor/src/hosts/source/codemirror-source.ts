@@ -1,3 +1,5 @@
+import { editorI18nAt } from "../../core/i18n.js";
+import { ImageInput } from "./image-input.js";
 import { sourceSnapshot } from "../shared/source-snapshot.js";
 import {
   defaultKeymap,
@@ -39,8 +41,8 @@ import {
   type EditorTransactionCoordinator,
 } from "../../adapter/index.js";
 import { createDefaultEditorCommandRegistry } from "../../components/commands.js";
-import { EditorCommandRegistry, type TableInsertionSize } from "../../core/commands/index.js";
-import { markdownEditingKeymap } from "./markdown-keymap.js";
+import { EditorCommandRegistry, type EditorCommandExecution, type EditorCommandResult, type EditorImage, type SaveEditorImage, type TableInsertionSize } from "../../core/commands/index.js";
+import { completeCodeFence, markdownEditingKeymap } from "./markdown-keymap.js";
 import { engineSynchronization, requestedOrigin, sourceReadOnlyFilter,
   synchronizedFromEngine } from "./synchronization.js";
 import {
@@ -86,13 +88,18 @@ export interface CodeMirrorSourceOptions {
   readonly root: HTMLElement;
   readonly session: EditorDocumentSession;
   readonly transactions: EditorTransactionCoordinator;
+  readonly saveImage?: SaveEditorImage;
   readonly extensions?: readonly Extension[];
   readonly lineWrapping?: boolean;
+  /** Complete a standalone opening code fence on Enter. Defaults to true. */
+  readonly autoCloseCodeFences?: boolean;
   readonly readOnly?: boolean;
   readonly history?: EditorHistorySnapshot | undefined;
   /** 未传入时使用 MarkdownEditor 的内置表格命令与快捷键。 */
   readonly commands?: EditorCommandRegistry;
   /** Host actions share the same command registry as source edit commands. */
+  readonly canHandleAction?: (action: string) => boolean;
+  readonly onCommandExecuted?: (event: EditorCommandExecution) => void;
   readonly onCommandAction?: (action: string) => boolean;
   /** 已接受的本地 CodeMirror 修改，此时 Rust 还未确认。 */
   readonly onInputTransaction?: (event: CodeMirrorInputTransaction) => void;
@@ -113,6 +120,11 @@ export interface EditorCommandExecutionOptions {
   /** 命令没有显式返回目标选区时保留原选区；显式结果选区始终优先。 */
   readonly preserveSelection?: boolean;
   readonly tableSize?: TableInsertionSize;
+  readonly taskMarkerFrom?: number;
+  readonly images?: readonly EditorImage[];
+  readonly imageSource?: "api" | "paste" | "picker";
+  /** Map the live selection when an asynchronous action finishes away from it. */
+  readonly retainCurrentSelection?: boolean;
   readonly preserveViewport?: boolean;
 }
 
@@ -138,7 +150,9 @@ export class CodeMirrorSource {
   readonly #commands: EditorCommandRegistry;
   readonly #unsubscribe: () => void;
   readonly #unsubscribeCommands: () => void;
+  readonly #unsubscribeLocale: () => void;
   readonly #editable = new Compartment();
+  readonly #imageInput?: ImageInput;
   readonly #commandBindings = new Compartment();
   #desired: DesiredInputState;
   #syncing: Promise<void> | undefined;
@@ -149,16 +163,28 @@ export class CodeMirrorSource {
   #compositionActive = false;
   #compositionCommitPending = false;
   #compositionCommitTimer: ReturnType<typeof setTimeout> | undefined;
+  #quoteRequest: { key: string; done: Promise<void> } | undefined;
   #pendingBase: string;
   #pendingChanges: ChangeSet;
 
   constructor({ history: historySnapshot, ...options }: CodeMirrorSourceOptions) {
     this.#options = options;
+    const i18n = editorI18nAt(options.root);
     this.#commands = options.commands ?? createDefaultEditorCommandRegistry();
+    if (options.saveImage) {
+      this.#imageInput = new ImageInput(options.saveImage, (entry, images) => {
+        const live = this.view.state.selection;
+        return this.executeCommand("insert.image", protocolSelection(entry.from, entry.to), {
+          images, imageSource: entry.source,
+          retainCurrentSelection: live.ranges.length !== 1 || live.main.from !== entry.from || live.main.to !== entry.to,
+          preserveViewport: true,
+        });
+      }, () => this.#compositionActive || this.#compositionCommitPending, options.onError ?? (error => console.error(error)));
+    }
     const source = options.session.adapter.text.text;
     this.#pendingBase = source;
     this.#pendingChanges = ChangeSet.empty(source.length);
-    const initialSelection = selection(0, 0);
+    const initialSelection = protocolSelection(0, 0);
     this.#desired = {
       source,
       selectionBefore: initialSelection,
@@ -174,9 +200,12 @@ export class CodeMirrorSource {
       EditorState.allowMultipleSelections.of(true),
       EditorView.contentAttributes.of({ tabindex: "0" }),
       sourceReadOnlyFilter,
+      EditorState.phrases.of(i18n.phrases),
       sourceSearch(),
       this.#commandBindings.of(keymap.of(this.#commandKeymap())),
       keymap.of([
+        { key: "Enter", run: view => options.autoCloseCodeFences !== false &&
+          !this.#compositionActive && !this.#compositionCommitPending && completeCodeFence(view, options.session.adapter) },
         ...markdownEditingKeymap,
         indentWithTab,
         ...defaultKeymap,
@@ -205,6 +234,7 @@ export class CodeMirrorSource {
         EditorView.editable.of(!(options.readOnly ?? false)),
       ]),
       EditorView.domEventHandlers({
+        paste: event => this.pasteImages(event),
         beforeinput: (event, view) => {
           const input = event as InputEvent;
           if (this.#disposed || view.state.readOnly || this.#compositionActive ||
@@ -229,10 +259,15 @@ export class CodeMirrorSource {
         },
         compositionend: () => {
           this.#finishComposition();
+          if (this.#imageInput) setTimeout(() => this.#imageInput?.drain(this.view), 0);
           return false;
         },
       }),
-      EditorView.updateListener.of((update) => this.#accept(update)),
+      EditorView.updateListener.of(update => {
+        this.#imageInput?.update(update);
+        this.#accept(update);
+        if (update.selectionSet || update.startState.readOnly !== update.state.readOnly) this.#loadSelectedQuoteRow(update.view);
+      }),
       ...(options.lineWrapping === false ? [] : [EditorView.lineWrapping]),
       ...(options.extensions ?? []),
     ];
@@ -254,8 +289,22 @@ export class CodeMirrorSource {
       // Analysis and projection effects never change confirmed source. A
       // full CM Text flatten/compare for each background slice turns opening
       // a large document into repeated O(document-size) main-thread work.
-      if (effect.documentPatch === undefined || this.#syncing !== undefined || this.#disposed) return;
-      this.#replaceFromEngine(options.session.adapter.text.text, effect.appliedEdits);
+      if (this.#disposed) return;
+      if (effect.documentPatch !== undefined && this.#syncing === undefined) {
+        this.#replaceFromEngine(options.session.adapter.text.text, effect.appliedEdits);
+      }
+      if (effect.documentPatch || effect.analysisUpdate) this.#loadSelectedQuoteRow(this.view);
+    });
+    this.#unsubscribeLocale = i18n.subscribe(() => {
+      // CodeMirror creates the native go-to-line labels once per open dialog.
+      const panel = this.view.dom.querySelector(".cm-goto-line");
+      if (panel) {
+        const caption = panel.querySelector("label")?.firstChild;
+        if (caption?.nodeType === 3) caption.textContent = i18n.t("Go to line") + ": ";
+        const submit = panel.querySelector("button[type=submit]");
+        if (submit) submit.textContent = i18n.t("go");
+        panel.querySelector(".cm-dialog-close")?.setAttribute("aria-label", i18n.t("close"));
+      }
     });
     this.#unsubscribeCommands = this.#commands.subscribe(() => {
       if (!this.#disposed) this.view.dispatch({
@@ -280,6 +329,14 @@ export class CodeMirrorSource {
       history: state.field(historyField),
     });
     return snapshot;
+  }
+
+  get canPickImageFiles(): boolean { return this.#imageInput !== undefined; }
+
+  /** Use the same image handler for mapped input surfaces with their own clipboard target. */
+  pasteImages(event: ClipboardEvent): boolean {
+    return !this.#disposed && !this.#compositionActive && !this.#compositionCommitPending &&
+      (this.#imageInput?.paste(event, this.view) ?? false);
   }
 
   get commands(): EditorCommandRegistry {
@@ -347,6 +404,7 @@ export class CodeMirrorSource {
     // mounted previews and loses their stable geometry and selection.
     if (source === sourceSnapshot(this.view) ||
         (source.includes("\r") && this.view.state.toText(source).eq(this.view.state.doc))) return;
+    this.#imageInput?.cancel();
     this.replaceRange(0, this.view.state.doc.length, source, "api");
   }
 
@@ -377,6 +435,44 @@ export class CodeMirrorSource {
     selectionOverride?: EditorSelection,
     options: EditorCommandExecutionOptions = {},
   ): boolean {
+    const prepared = this.#prepareCommand(id, selectionOverride, options);
+    if (!prepared) return false;
+    const { result, selection } = prepared;
+    let handled: boolean;
+    if (result.action === undefined) {
+      handled = this.#applyEdits(id, result, selection, selectionOverride, options);
+    } else if (result.action === "image.choose-file") {
+      handled = this.#imageInput?.pick(this.view, selection) ?? false;
+    } else {
+      handled = executeSourceAction(this.view, result.action) ?? this.#options.onCommandAction?.(result.action) ?? false;
+    }
+    if (handled) this.#options.onCommandExecuted?.({ id, userEvent: result.userEvent });
+    return handled;
+  }
+
+  /** Test the current context without dispatching a transaction or opening host UI. */
+  canExecuteCommand(id: string, selectionOverride?: EditorSelection): boolean {
+    const prepared = this.#prepareCommand(id, selectionOverride, {});
+    if (!prepared) return false;
+    const { action, edits } = prepared.result;
+    const view = this.view;
+    if (action === undefined) return !view.state.readOnly || !edits?.length;
+    switch (action) {
+      case "image.choose-file": return !!this.#imageInput && !view.state.readOnly;
+      case "history.undo": return !view.state.readOnly && undoDepth(view.state) > 0;
+      case "history.redo": return !view.state.readOnly && redoDepth(view.state) > 0;
+      case "search.replace-next": case "search.replace-all":
+        return !view.state.readOnly && getSourceSearchQuery(view).valid;
+      case "search.next": case "search.previous": {
+        const query = getSourceSearchQuery(view);
+        return query.search.length === 0 || query.valid;
+      }
+      case "search.open": case "search.replace": case "document.goto-line": case "selection.next-occurrence": return true;
+      default: return this.#options.canHandleAction?.(action) ?? this.#options.onCommandAction !== undefined;
+    }
+  }
+
+  #prepareCommand(id: string, selectionOverride: EditorSelection | undefined, options: EditorCommandExecutionOptions) {
     this.#assertLive();
     const selection = selectionOverride ?? protocolSelection(
       this.view.state.selection.main.anchor,
@@ -384,12 +480,29 @@ export class CodeMirrorSource {
     );
     const view = this.view;
     const adapter = this.#options.session.adapter;
+    if (selectionOverride && [selection.anchor, selection.head].some(offset =>
+      !Number.isSafeInteger(offset) || offset < 0 || offset > view.state.doc.length)) return undefined;
+    if ((id === "task.toggle-checked" || id === "list.renumber" || id === "format.task-list" || id === "insert.image") &&
+        (view.composing || this.#compositionActive || this.#compositionCommitPending || view.state.readOnly)) return undefined;
     const result = this.#commands.execute(id, {
       // Host-only actions such as Find Next never need a flattened document.
       // Semantic edit commands still receive the same source string on demand.
       get source() { return sourceSnapshot(view); },
+      phrase: message => view.state.phrase(message),
       get block() { return adapter.confirmedBlockAt(sourceSnapshot(view), Number(selection.head)); },
+      blockAt(offset) {
+        const root = adapter.confirmedBlockAt(sourceSnapshot(view), offset);
+        if (root?.kind !== "block-quote") return root;
+        const row = view.state.doc.lineAt(offset).number - view.state.doc.lineAt(root.sourceRange.from).number;
+        const node = adapter.projection.nodeAt(root.id, "quote-lines", row);
+        if (node?.content.type !== "structured") return root;
+        return node.content.children[0] ?? node;
+      },
+      ...(options.taskMarkerFrom === undefined ? {} : { taskMarkerFrom: options.taskMarkerFrom }),
       selection,
+      canPickImage: this.#imageInput !== undefined,
+      ...(options.images === undefined ? {} : { images: options.images }),
+      ...(options.imageSource === undefined ? {} : { imageSource: options.imageSource }),
       ...(options.tableSize === undefined ? {} : { tableSize: options.tableSize }),
       // 工具栏传入显式 anchor 表示用户已经选择了唯一命令目标；普通快捷键
       // 则必须保留 CodeMirror 的多选数量，交给命令前置条件判断。
@@ -397,11 +510,31 @@ export class CodeMirrorSource {
         ? this.view.state.selection.ranges.length
         : 1,
     });
-    if (result === undefined) return false;
-    if (result.action !== undefined) {
-      return executeSourceAction(this.view, result.action) ??
-        this.#options.onCommandAction?.(result.action) ?? false;
-    }
+    return result === undefined ? undefined : { selection, result };
+  }
+
+  // Live Preview loads visible quote rows itself. Source and split views need
+  // just the active row to distinguish a quoted list from code with list-like text.
+  #loadSelectedQuoteRow(view: EditorView): void {
+    if (view.state.readOnly || view.contentDOM.classList.contains("jot-live-preview-content")) return;
+    const line = view.state.doc.lineAt(view.state.selection.main.head);
+    if (!/^ {0,3}>/u.test(view.state.doc.sliceString(line.from, Math.min(line.from + 4, line.to)))) return;
+    const { session } = this.#options;
+    const root = session.adapter.confirmedBlockAt(sourceSnapshot(view), line.from);
+    if (root?.kind !== "block-quote") return;
+    const row = line.number - view.state.doc.lineAt(root.sourceRange.from).number;
+    if (session.adapter.projection.nodeAt(root.id, "quote-lines", row)) return;
+    const key = `${session.adapter.revision}:${root.id}:${row}`;
+    if (this.#quoteRequest?.key === key) return;
+    const done = session.project([{ parentId: root.id, axis: "quote-lines",
+      window: { type: "index", from: row, toExclusive: row + 1 }, maxDepth: 0 }])
+      .then(() => {}, error => { if (!this.#disposed) this.#options.onError?.(error); });
+    this.#quoteRequest = { key, done };
+  }
+
+  #applyEdits(id: string, result: EditorCommandResult, selection: EditorSelection,
+    selectionOverride: EditorSelection | undefined, options: EditorCommandExecutionOptions): boolean {
+    const view = this.view;
     const edits = result.edits ?? [];
     if (this.view.state.readOnly && edits.length > 0) return false;
     if (edits.length === 0 && result.selection === undefined && selectionOverride === undefined) return true;
@@ -418,7 +551,7 @@ export class CodeMirrorSource {
               insert: edit.insert,
             })),
           }),
-      ...(result.selection === undefined &&
+      ...(options.retainCurrentSelection === true || result.selection === undefined &&
         (selectionOverride === undefined || options.preserveSelection === true)
         ? {}
         : {
@@ -429,6 +562,7 @@ export class CodeMirrorSource {
           }),
       scrollIntoView: options.preserveViewport !== true,
       annotations: [
+        ...(["insert.image", "task.toggle-checked", "list.renumber"].includes(id) && edits.length ? [isolateHistory.of("full")] : []),
         requestedOrigin.of(result.origin ?? "keyboard"),
         requestedUserEvent.of(result.userEvent),
         Transaction.userEvent.of(result.userEvent),
@@ -463,6 +597,7 @@ export class CodeMirrorSource {
     }
     await this.#syncing;
     await this.#options.transactions.settled();
+    await this.#quoteRequest?.done;
     if (this.#options.session.terminalError) throw this.#options.session.terminalError;
   }
 
@@ -472,8 +607,10 @@ export class CodeMirrorSource {
     if (this.#compositionCommitTimer !== undefined) {
       clearTimeout(this.#compositionCommitTimer);
     }
+    this.#imageInput?.cancel();
     this.#unsubscribe();
     this.#unsubscribeCommands();
+    this.#unsubscribeLocale();
     this.view.destroy();
   }
 
@@ -683,10 +820,6 @@ export function codeMirrorChangesToTextEdits(changes: ChangeSet): readonly TextE
 }
 
 function protocolSelection(anchor: number, head: number): EditorSelection {
-  return selection(anchor, head);
-}
-
-function selection(anchor: number, head: number): EditorSelection {
   return {
     anchor: anchor as Utf16Offset,
     head: head as Utf16Offset,

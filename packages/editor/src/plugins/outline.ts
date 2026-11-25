@@ -47,7 +47,7 @@ function headingLabel(node: RenderNode, source: string): string {
     label += source.slice(from, end);
     if (end < to) return label.trimEnd() + "…";
   }
-  return (label.trim() + (booleanAttribute(node, "truncated") ? "…" : "")) || "无标题";
+  return (label.trim() + (booleanAttribute(node, "truncated") ? "…" : ""));
 }
 
 /** Bind an external container to one editor. Dispose when the host closes or binds a different editor. */
@@ -57,32 +57,36 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
   const rowHeight = options.rowHeight ?? 32;
   if (!Number.isFinite(rowHeight) || rowHeight < 1) throw new RangeError("outline rowHeight must be positive");
   const document = container.ownerDocument;
+  const { i18n } = editor;
   const wrapper = document.createElement("div");
+  const releaseLocale = i18n.scope(wrapper);
   wrapper.className = "jot-outline-host";
   const nav = document.createElement("nav");
   nav.id = "jot-outline-" + ++nextOutlineId;
   nav.className = "jot-outline";
   nav.tabIndex = -1;
-  nav.setAttribute("aria-label", options.label ?? "文档大纲");
+  if (options.label !== undefined) nav.setAttribute("aria-label", options.label);
+  else i18n.bind(nav, "aria-label", "Document outline");
   nav.style.setProperty("--jot-outline-row-height", rowHeight + "px");
   const style = document.createElement("style");
   style.textContent = styles;
   const status = document.createElement("div");
   status.className = "jot-outline__status";
   status.setAttribute("role", "status");
-  status.textContent = "正在读取大纲…";
+  i18n.bind(status, "textContent", "Loading outline…");
   const track = document.createElement("div");
   track.className = "jot-outline__track";
   const rows = document.createElement("div");
   rows.className = "jot-outline__rows";
   rows.setAttribute("role", "tree");
-  rows.setAttribute("aria-label", options.label ?? "文档大纲");
+  if (options.label !== undefined) rows.setAttribute("aria-label", options.label);
+  else i18n.bind(rows, "aria-label", "Document outline");
   track.append(rows);
   nav.append(style, status, track);
   wrapper.append(nav);
   container.append(wrapper);
   const scrollbar = (options.scrollbar ?? "direct") === "direct" ? new DirectScrollbar({
-    scrollElement: nav, contentElement: track, trackHost: wrapper, label: (options.label ?? "文档大纲") + "滚动条",
+    scrollElement: nav, contentElement: track, trackHost: wrapper, label: () => i18n.t("$1 scrollbar", options.label ?? i18n.t("Document outline")),
   }) : undefined;
 
   const view = editor.input.view;
@@ -160,7 +164,7 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
       }
       const level = numberAttribute(node, "level")!;
       const depth = numberAttribute(node, "depth") ?? level;
-      const label = headingLabel(node, source);
+      const label = headingLabel(node, source) || i18n.t("Untitled");
       button.dataset["index"] = String(index);
       button.tabIndex = node.id === tabId ? 0 : -1;
       button.style.setProperty("--jot-outline-level", String(depth));
@@ -185,7 +189,7 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
       if (atSlot !== button) rows.insertBefore(button, atSlot);
     }
     status.hidden = total > 0;
-    if (!total) status.textContent = page.complete ? "暂无标题" : "正在读取大纲…";
+    if (!total) i18n.bind(status, "textContent", page.complete ? "No headings" : "Loading outline…");
     nav.setAttribute("aria-busy", String(!page.complete));
     if (hadFocus && !rows.contains(root.activeElement)) {
       (focusIndex === undefined ? visibleTitle() ?? nav : nav).focus({ preventScroll: true });
@@ -244,7 +248,7 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
       if (disposed || pending !== request) return;
       if (editor.revision !== revision) schedule();
       else {
-        status.textContent = "大纲加载失败";
+        i18n.bind(status, "textContent", "Could not load outline");
         status.hidden = false;
         nav.setAttribute("aria-busy", "false");
         options.onError?.(error);
@@ -359,6 +363,7 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
     else if (top + rowHeight > nav.scrollTop + nav.clientHeight) nav.scrollTop = top + rowHeight - nav.clientHeight;
     schedule();
   }, { signal });
+  const stopLocale = i18n.subscribe(() => { if (page) draw(); });
   const unsubscribe = editor.subscribe(effect => {
     if (effect.documentPatch) {
       if (collapsed.size && effect.appliedEdits?.some(edit => edit.range.from === 0 && edit.range.to === documentLength)) {
@@ -372,7 +377,7 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
     if (editTimer !== undefined) clearTimeout(editTimer);
     editTimer = undefined;
     if (effect.analysis.state === "failed") {
-      status.textContent = "大纲加载失败";
+      i18n.bind(status, "textContent", "Could not load outline");
       status.hidden = false;
       nav.setAttribute("aria-busy", "false");
       return;
@@ -418,6 +423,8 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
     disposed = true;
     unregisterFocus();
     unsubscribe();
+    stopLocale();
+    releaseLocale();
     listeners.abort();
     modeObserver.disconnect();
     resize.disconnect();

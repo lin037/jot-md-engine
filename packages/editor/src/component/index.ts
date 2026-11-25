@@ -1,5 +1,7 @@
+export { EditorI18n, type EditorTranslations } from "../core/i18n.js";
 export {
   MarkdownEditor,
+  type ConfirmedDocumentChange,
   type MarkdownEditorCommandOptions,
   type MarkdownEditorMode,
   type MarkdownEditorOptions,

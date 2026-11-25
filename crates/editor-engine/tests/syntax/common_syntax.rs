@@ -711,3 +711,120 @@ fn new_container_edits_match_a_full_reparse() {
     let full = parse(&changed_text, &profile).unwrap();
     assert_same_syntax(&incremental.snapshot, &full);
 }
+
+#[test]
+fn tilde_fences_and_compact_bracket_math_keep_precise_ranges() {
+    let source = "~~~~js\n~~~\n```\n~~~~~\n  \\[😀 + α\\]  \n\\(x\\)\n~~still struck~~";
+    let syntax = parse_syntax(source);
+    let text = TextBuffer::from_source(source);
+    assert!(
+        matches!(&syntax.block(0).unwrap().kind, NodeKind::FencedCode { language, content_range, .. }
+        if language.as_deref() == Some("js") && text.slice(*content_range).unwrap() == "~~~\n```")
+    );
+    assert!(
+        matches!(&syntax.block(1).unwrap().kind, NodeKind::MathBlock { content_range, delimiter: MathDelimiter::Bracket, .. }
+        if text.slice(*content_range).unwrap() == "😀 + α")
+    );
+    assert!(matches!(
+        node(&syntax, syntax.block(2).unwrap(), 0).kind,
+        NodeKind::InlineMath { .. }
+    ));
+    assert!(matches!(
+        node(&syntax, syntax.block(3).unwrap(), 0).kind,
+        NodeKind::Strikethrough
+    ));
+    for literal in [
+        "~~~~\nx\n~~~",
+        "~~~js\nx\n```",
+        r"before \[x\]",
+        r"\[x\] and \[y\]",
+        r"\[x\\]",
+    ] {
+        assert!(
+            matches!(
+                parse_syntax(literal).block(0).unwrap().kind,
+                NodeKind::Paragraph
+            ),
+            "{literal}"
+        );
+    }
+    let image = parse_syntax(r"![a\|b\]](<C:\\notes\\my (draft)\|copy.png>)");
+    assert!(
+        matches!(&node(&image, image.block(0).unwrap(), 0).kind, NodeKind::Image { destination, alt, .. }
+        if destination == r"C:\notes\my (draft)|copy.png" && alt == "a|b]")
+    );
+}
+
+#[test]
+fn strikethrough_stops_at_code_fences() {
+    for marker in ["~~~", "```"] {
+        let source = format!("~~before~~\n{marker}\n~~literal~~\n{marker}\n~~after~~");
+        let syntax = parse_syntax(&source);
+        for index in [0, 2] {
+            assert_eq!(
+                node(&syntax, syntax.block(index).unwrap(), 0).kind,
+                NodeKind::Strikethrough
+            );
+        }
+        let code = syntax.block(1).unwrap();
+        assert!(code.children.is_empty());
+        assert!(
+            matches!(&code.kind, NodeKind::FencedCode { content_range, .. }
+            if TextBuffer::from_source(&source).slice(*content_range).unwrap() == "~~literal~~")
+        );
+    }
+}
+
+#[test]
+fn editing_tilde_and_bracket_delimiters_agrees_with_full_parse() {
+    let profile = CompiledSyntaxProfile::compile(Default::default());
+    for (source, at, removed, inserted) in [
+        ("~~~~js\nx\n~~~\ny\n~~~~", 0, "~", ""),
+        ("~~~js\nx\n~~\nend", 10, "", "~"),
+        ("~~~js\nx\n~~~\nend", 10, "~", ""),
+        ("~~~\na\nb\n~~~", 6, "b", "~~~"),
+        ("\\[x+1\\]", 3, "", "\\]"),
+        ("\\[x+1\\]", 5, "", "\\"),
+        ("\\[x+1\\]", 2, "", "\n"),
+        ("\\[x+1", 5, "", "\\]"),
+        ("\\[\\]", 2, "", "α"),
+        ("~~~~\na\n~~~\nb\n~~~", 15, "", "~"),
+        ("~~~\n\\[\n~~~js\n\\]\nend", 10, "", "\n"),
+        ("\\[\n~~~\n\\]x\n~~~", 9, "x", ""),
+    ] {
+        let after = format!(
+            "{}{}{}",
+            &source[..at],
+            inserted,
+            &source[at + removed.len()..]
+        );
+        assert_eq!(&source[at..at + removed.len()], removed);
+        let before = TextBuffer::from_source(source);
+        let text = TextBuffer::from_source(&after);
+        let range = ChangedTextRange {
+            before: TextRange::new(at as u32, (at + removed.len()) as u32),
+            after: TextRange::new(
+                at as u32,
+                at as u32 + inserted.encode_utf16().count() as u32,
+            ),
+        };
+        let incremental = reparse_change(
+            &parse_syntax(source),
+            &before,
+            &text,
+            range,
+            removed,
+            inserted,
+            &profile,
+        )
+        .unwrap();
+        let full = parse_syntax(&after);
+        assert_eq!(
+            incremental.snapshot.block_count(),
+            full.block_count(),
+            "{source:?} -> {after:?}, reparsed {:?}",
+            incremental.reparsed_range
+        );
+        assert_same_syntax(&incremental.snapshot, &full);
+    }
+}

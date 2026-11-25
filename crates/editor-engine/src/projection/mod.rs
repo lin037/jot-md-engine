@@ -520,9 +520,14 @@ fn source_projection(node: &SyntaxNode, text: &TextBuffer) -> (TextRange, bool) 
             ..
         } => {
             let to = closing_range.map_or_else(|| text.utf16_len(), |range| range.from);
+            // Adjacent code fences have one display row at the start of the closer.
+            let empty_code = matches!(node.kind, NodeKind::FencedCode { .. })
+                && closing_range.is_some()
+                && content_range.from == to;
             (
                 TextRange::new(content_range.from, to),
-                closing_range.is_none() && to == text.utf16_len() && text.ends_with_lf(),
+                empty_code
+                    || (closing_range.is_none() && to == text.utf16_len() && text.ends_with_lf()),
             )
         }
         NodeKind::InlineCode { content_range }

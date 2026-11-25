@@ -2,12 +2,10 @@ import type { RenderNode, TextRange } from "../../../../editor-protocol/src/inde
 import { LivePreviewEditPolicy } from "../../../src/hosts/live-preview/edit-policy.js";
 import { planLivePreview } from "../../../src/hosts/live-preview/planner.js";
 import { SyntaxBlockIndex } from "../../../src/adapter/block-index.js";
+import { confirmedPrefixMarkerRisks, optimisticMarkerRisk, resolveOptimisticEmptyMarkerKind } from "../../../src/hosts/shared/markdown-markers.js";
 import {
-  confirmedPrefixMarkerRisks,
-  optimisticMarkerRisk,
   planEmptyClosedContainerSeparator,
   resolveEmptyClosedContainer,
-  resolveOptimisticEmptyMarkerKind,
 } from "../../../src/hosts/live-preview/empty-block-input.js";
 import { resolveSourceRootAt } from "../../../src/hosts/live-preview/presentation.js";
 import {

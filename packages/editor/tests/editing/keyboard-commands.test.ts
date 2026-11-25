@@ -57,6 +57,9 @@ function inserted_blocks_accept_the_first_keystroke_at_their_content(): void {
   const image = execute("insert.image", "a]b\n😀", 0, "a]b\n😀".length).state;
   equal(selected(image), "https://");
   equal(text(type(image, "https://example.test/image.png")), "![a\\]b 😀](https://example.test/image.png)");
+  const inlineImage = execute("insert.image", "左🙂右", 3).state;
+  equal(text(inlineImage), "左🙂![](https://)右");
+  equal(selected(inlineImage), "https://");
 }
 
 function block_insertion_reuses_existing_separators(): void {
@@ -168,10 +171,12 @@ function link_commands_reuse_the_destination_without_wrapping_it_again(): void {
 function optional_shortcuts_and_new_formats_use_registered_commands(): void {
   const registry = createDefaultEditorCommandRegistry();
   for (const id of ["toolbar.open-heading", "toolbar.open-table", "toolbar.open-more", "insert.table",
-    "format.bullet-list", "format.strikethrough", "format.math", "format.task-list", "format.paragraph"]) {
+    "format.bullet-list", "format.strikethrough", "format.math", "list.renumber", "format.paragraph"]) {
     equal(registry.shortcutSettings.some((setting) => setting.id === id), true);
     equal(registry.shortcuts.some((binding) => binding.command === id), false);
   }
+  equal(registry.shortcuts.find(binding => binding.command === "format.task-list")?.key, "Ctrl-Shift-9");
+  equal(registry.shortcuts.find(binding => binding.command === "task.toggle-checked")?.key, "Mod-Alt-Enter");
   registry.configureShortcuts({ "toolbar.open-table": "F8", "format.task-list": "F10" });
   equal(registry.shortcutForEvent({ key: "F8" })?.command, "toolbar.open-table");
   registry.setShortcutDefaults({}, { "toolbar.open-table": "F9" }, "mac");
@@ -194,3 +199,23 @@ registry_native_actions_and_remapped_shortcuts_have_one_identity();
 default_shortcuts_follow_the_host_platform();
 link_commands_reuse_the_destination_without_wrapping_it_again();
 optional_shortcuts_and_new_formats_use_registered_commands();
+
+const nestedTasks = "> - [ ] parent  \n>   continuation\n>   2) [X] child";
+equal(text(execute("task.toggle-checked", nestedTasks, nestedTasks.indexOf("continuation")).state),
+  nestedTasks.replace("[ ]", "[x]"));
+equal(text(execute("task.toggle-checked", nestedTasks, nestedTasks.length).state), nestedTasks.replace("[X]", "[ ]"));
+const list = "> 9) first\n>   5. child\n> 2) next  \n>    continuation\n> 55) last\n> 8. different";
+equal(text(execute("list.renumber", list, list.indexOf("continuation")).state),
+  "> 9) first\n>   5. child\n> 10) next  \n>     continuation\n> 11) last\n> 8. different");
+const itemContext = (source: string) => ({ source, selection: { anchor: 0 as Utf16Offset, head: 0 as Utf16Offset } });
+const registry = createDefaultEditorCommandRegistry();
+equal(registry.execute("task.toggle-checked", itemContext("- [ ]suffix")), undefined);
+equal(registry.execute("list.renumber", itemContext("1. fine\n2. fine")), undefined);
+equal(registry.execute("list.renumber", itemContext("999999999. first\n1. next")), undefined);
+equal(registry.execute("insert.image", { ...itemContext(""), images: [{ destination: "./dir/a (b).png", alt: "a]b" }] })
+  ?.edits?.[0]?.insert, "![a\\]b](<./dir/a (b).png>)");
+
+const longList = Array.from({ length: 1200 }, (_, i) => `1. row ${i}`).join("\n");
+const renumbered = execute("list.renumber", longList, longList.indexOf("row 600"));
+equal(renumbered.result.edits?.length, 1199);
+equal(text(renumbered.state).split("\n").at(-1), "1200. row 1199");

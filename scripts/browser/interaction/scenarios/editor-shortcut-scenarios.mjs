@@ -67,6 +67,22 @@ export async function runShortcutScenarios({ c, load, confirmed, results }) {
     await expectSource('#'.repeat(level) + ' ' + paragraph);
   });
 
+  add('format.task-list', async (mode, key) => {
+    await fresh(mode, paragraph, paragraph.length);
+    await press(key);
+    await expectSource('- [ ] ' + paragraph);
+    await press(key);
+    await expectSource(paragraph);
+  });
+  add('task.toggle-checked', async (mode, key) => {
+    const task = '2) [ ] review';
+    await fresh(mode, task, task.length);
+    await press(key);
+    await expectSource('2) [x] review');
+    await press(key);
+    await expectSource(task);
+  });
+
   add('command.palette', async (mode, key) => {
     await fresh(mode, paragraph);
     await press(key);

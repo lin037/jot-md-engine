@@ -1,12 +1,13 @@
 use editor_protocol::TextRange;
 
-use super::{BlockContext, ParsedBlock};
+use super::{BlockContext, ParsedBlock, standalone_marker};
 use crate::syntax::{NodeKind, ParseError, SyntaxNode, tree::NodeIdAllocator};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Closer {
     Bare,
     End,
+    Tilde(usize),
 }
 
 pub(super) struct Opening {
@@ -82,6 +83,12 @@ pub(super) fn opening_with_profile(
 
 fn opening_with_unspaced_language(line: &str, allow_unspaced: bool) -> Option<Opening> {
     let marker = standalone_marker(line)?;
+    if let Some((width, info)) = tilde_marker(marker) {
+        return Some(Opening {
+            language: info.split_whitespace().next().map(str::to_owned),
+            closer: Closer::Tilde(width),
+        });
+    }
     let suffix = marker.strip_prefix("```")?;
     if suffix.is_empty() {
         return Some(Opening {
@@ -141,6 +148,13 @@ pub(crate) fn is_closing(line: &str) -> bool {
 
 pub(super) fn closing(line: &str) -> Option<Closer> {
     let marker = standalone_marker(line)?;
+    if let Some((width, "")) = tilde_marker(marker) {
+        return Some(Closer::Tilde(width));
+    }
+    backtick_closer(marker)
+}
+
+pub(super) fn backtick_closer(marker: &str) -> Option<Closer> {
     if marker == "```" {
         return Some(Closer::Bare);
     }
@@ -165,18 +179,21 @@ pub(crate) fn pair_matches(
     closer: &str,
     profile: &crate::syntax::CompiledSyntaxProfile,
 ) -> bool {
-    opening_with_profile(opener, profile)
-        .is_some_and(|opening| closing(closer) == Some(opening.closer))
+    let Some(opening) = opening_with_profile(opener, profile) else {
+        return false;
+    };
+    match (opening.closer, closing(closer)) {
+        (Closer::Tilde(minimum), Some(Closer::Tilde(width))) => width >= minimum,
+        (expected, actual) => actual == Some(expected),
+    }
 }
 
-fn standalone_marker(line: &str) -> Option<&str> {
-    let content = strip_commonmark_indent(line)?;
-    Some(content.trim_end_matches([' ', '\t']))
-}
-
-fn strip_commonmark_indent(line: &str) -> Option<&str> {
-    let spaces = line.bytes().take_while(|byte| *byte == b' ').count();
-    (spaces <= 3).then(|| &line[spaces..])
+pub(super) fn tilde_marker(marker: &str) -> Option<(usize, &str)> {
+    if !marker.starts_with("~~~") {
+        return None;
+    }
+    let width = marker.bytes().take_while(|&byte| byte == b'~').count();
+    Some((width, &marker[width..]))
 }
 
 #[cfg(test)]

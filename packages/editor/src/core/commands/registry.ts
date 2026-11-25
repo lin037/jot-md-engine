@@ -146,7 +146,7 @@ export class EditorCommandRegistry {
       for (const key of normalizedKeys(shortcut.key)) {
         const previous = keys.get(key);
         if (previous !== undefined && previous !== shortcut.id) {
-          throw new Error(`快捷键冲突：${shortcut.key}（${previous} / ${shortcut.id}）`);
+          throw new ShortcutError(`快捷键冲突：${shortcut.key}（${previous} / ${shortcut.id}）`, "Shortcut conflict: $1 ($2 / $3)", [shortcut.key, previous, shortcut.id]);
         }
         keys.set(key, shortcut.id);
       }
@@ -208,11 +208,15 @@ function normalizedKeys(key: string): readonly string[] {
   };
   const modifiers = parts.map((part) => {
     const modifier = aliases[part.toLowerCase()];
-    if (modifier === undefined) throw new Error(`无效快捷键修饰符：${part}`);
+    if (modifier === undefined) throw new ShortcutError(`无效快捷键修饰符：${part}`, "Invalid shortcut modifier: $1", [part]);
     return modifier;
   });
   return ["ctrl", "meta"].map((mod) => {
     const canonical = [...new Set(modifiers.map((part) => part === "mod" ? mod : part))].sort();
     return `${canonical.join("-")}:${name.toLowerCase()}`;
   });
+}
+
+export class ShortcutError extends Error {
+  constructor(message: string, readonly phrase: string, readonly values: readonly string[]) { super(message); }
 }

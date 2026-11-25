@@ -49,7 +49,7 @@ try {
     const worker = new Worker("/src/worker.ts", { type: "module" });
     const state = window.f = { source, host, sibling, worker, mountOutline, errors: [], requests: 0, maxBatch: 0, maxMounted: 0, totals: [] };
     const recordError = error => state.errors.push(String(error));
-    const editor = state.editor = new MarkdownEditor({ root: editorRoot, mode: "source",
+    const editor = state.editor = new MarkdownEditor({ root: editorRoot, mode: "source", locale: "zh-CN",
       plugins: [createHeadingFoldPlugin(), createOutlinePlugin({ container: host, enabled: false, onError: recordError })],
       session: { endpoint: worker, documentId: "outline", generation: 1, source,
         syntaxProfile: { id: "default", version: 1, enabledExtensions: [] },

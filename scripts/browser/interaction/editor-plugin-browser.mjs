@@ -1,5 +1,8 @@
 // Browser E2E for the exported component and real Mermaid, without Demo handlers.
 import assert from 'node:assert/strict';
+import { checkEditorInputs } from './editor-input-cases.mjs';
+import { checkCodeFenceInput } from './editor-fence-cases.mjs';
+import { checkEditorLocales } from './editor-locale-cases.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,7 +24,7 @@ try {
  await waitForHttp(`http://127.0.0.1:${debugPort}/json/version`,15000);
  const pages=await fetch(`http://127.0.0.1:${debugPort}/json/list`).then(r=>r.json());
  c=await connectCdp(pages.find(p=>p.type==='page'&&p.url.includes(`:${port}`)).webSocketDebuggerUrl);
- c.socket.addEventListener('message',event=>{const message=JSON.parse(String(event.data));if(message.method==='Runtime.exceptionThrown')browserErrors.push(message.params.exceptionDetails.text)});
+ c.socket.addEventListener('message',event=>{const message=JSON.parse(String(event.data));if(message.method==='Runtime.exceptionThrown')browserErrors.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text)});
  await c.command('Runtime.enable');
  await c.command('Emulation.setDeviceMetricsOverride',{width:1100,height:850,deviceScaleFactor:1,mobile:false});
  await waitForEvaluation(c,`document.readyState==='complete' && document.title==='Jot native component integration fixture'`,15000);
@@ -35,7 +38,7 @@ try {
   const dual={id:'dual',codeBlocks:['first','second'].map(language=>({languages:[language],render({document}){const n=document.createElement('span');n.className='dual-'+language;n.textContent=language;return n}}))};
   window.editor=new MarkdownEditor({root,mode:'live-preview',plugins:[createMermaidPlugin({enabled:false,load:async()=>{loads++;const m=(await loadMermaid()).default;return{default:{initialize:c=>m.initialize(c),render:(id,source,container)=>{mermaidRenderCalls.push(source);return m.render(id,source,container)}}}}}),delayed,dual],session:{endpoint:worker,documentId:'plugin-test',generation:1,source:'ready',syntaxProfile:{id:'default',version:1,enabledExtensions:[]}},onError:e=>errors.push(String(e))});
   await editor.open();window.view=editor.input.view;
-  window.createToolbarEditor=(options)=>{const host=document.createElement('div');host.style.cssText='height:200px;width:900px';document.body.append(host);window.toolbarWorker=new Worker('/src/worker.ts',{type:'module'});window.toolbarEditor=new MarkdownEditor({root:host,mode:'split',plugins:options===null?[]:[createToolbarPlugin(options)],session:{endpoint:toolbarWorker,documentId:'toolbar-test',generation:1,source:'ready',syntaxProfile:{id:'default',version:1,enabledExtensions:[]}},onError:e=>errors.push(String(e))});};
+  window.createToolbarEditor=(options, hooks={})=>{const host=document.createElement('div');host.style.cssText='height:200px;width:900px';document.body.append(host);window.toolbarWorker=new Worker('/src/worker.ts',{type:'module'});window.toolbarEditor=new MarkdownEditor({root:host,mode:'split',locale:'zh-CN',...hooks,plugins:options===null?[]:[createToolbarPlugin(options)],session:{endpoint:toolbarWorker,documentId:'toolbar-test',generation:1,source:'ready',syntaxProfile:{id:'default',version:1,enabledExtensions:[]}},onError:hooks.onError??(e=>errors.push(String(e)))});};
   window.disposeToolbarEditor=()=>{const host=toolbarEditor.inputPane.parentElement;toolbarEditor.dispose();toolbarWorker.terminate();host.remove();};
   window.createCompat=async(source)=>{root.style.display='none';const second=document.createElement('div');second.id='compat';second.style.cssText='height:700px;width:900px;margin:10px';document.body.append(second);window.compatWorker=new Worker('/src/worker.ts',{type:'module'});window.compatEditor=new MarkdownEditor({root:second,mode:'live-preview',plugins:[createMermaidPlugin({load:loadMermaid})],session:{endpoint:compatWorker,documentId:'compat-test',generation:1,source,syntaxProfile:{id:'default',version:1,enabledExtensions:[{id:'commonmark-fence-language',version:'1.0.0'}]}},onError:e=>errors.push(String(e))});await compatEditor.open();compatEditor.input.setSelection(0);await compatEditor.livePreview.settled()};
  })()`);
@@ -124,6 +127,7 @@ try {
  const cellPoint = await c.evaluate(`(()=>{const r=${gridCell}.getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2}})()`);
  await c.command('Input.dispatchMouseEvent', {type:'mouseMoved', ...cellPoint});
  assert.equal(await c.evaluate(`${tablePanel}.querySelectorAll('[data-selected]').length`),12,'hover highlights the requested rectangle');
+ assert.equal(await c.evaluate(`${tablePanel}.querySelector('details').open`),false);
  await screenshot('toolbar-table-picker');
  await toolbarClick(gridCell);
  await c.evaluate('toolbarEditor.settled()');
@@ -137,6 +141,8 @@ try {
  await waitForEvaluation(c,`toolbarEditor.surfacePane.querySelector('.jot-table')?.getAttribute('aria-colcount')==='1'`,15000);
  await c.evaluate(`${toolbarButton('history.undo')}.click();toolbarEditor.settled()`);
  await toolbarClick(toolbarButton('toolbar.open-table'));
+ await toolbarClick(`${tablePanel}.querySelector('summary')`);
+ assert(await c.evaluate(`${tablePanel}.querySelector('details').open`));
  await c.evaluate(`(()=>{const form=${tablePanel}.querySelector('form');form.elements.rows.value='7';form.elements.columns.value='10';form.requestSubmit()})()`);
  await c.evaluate('toolbarEditor.settled()');
  assert(await c.evaluate(`(()=>{const lines=toolbarEditor.confirmedValue.split('\\n').slice(2);return lines.length===8 && lines.every(line=>(line.match(/\\|/g)||[]).length===11)})()`),'numeric form inserts beyond the picker grid');
@@ -144,6 +150,8 @@ try {
  await c.evaluate(`toolbarEditor.commands.configureShortcuts({'toolbar.open-table':'F8','toolbar.open-more':'F9','toolbar.open-heading':'F10','format.strikethrough':'F7'});toolbarEditor.focus()`);
  await toolbarKey('F8',119);
  assert(await c.evaluate(`!!${tablePanel}`),'a newly bound shortcut opens the table sizes');
+ await toolbarKey('ArrowRight',39);
+ assert.equal(await c.evaluate('document.activeElement.getAttribute("aria-label")'),'3 行 × 4 列');
  await toolbarKey('Escape',27);
  assert(await c.evaluate(`!${tablePanel} && document.activeElement===${toolbarButton('toolbar.open-table')}`),'Escape closes the picker and returns focus to its trigger');
  await c.evaluate('toolbarEditor.focus()');
@@ -152,7 +160,14 @@ try {
  await toolbarKey('Escape',27);
  await c.evaluate('toolbarEditor.focus()');
  await toolbarKey('F9',120);
- assert.equal(await c.evaluate(`document.querySelectorAll('.jot-editor-toolbar__picker--more:popover-open [data-jot-toolbar-choice]').length`),7);
+ const morePanel = `document.querySelector('.jot-editor-toolbar__picker--more:popover-open')`;
+ assert.equal(await c.evaluate(`${morePanel}.querySelectorAll('[role=menuitem]').length`),7);
+ assert.equal(await c.evaluate(`${morePanel}.querySelector('[data-jot-toolbar-choice="format.strikethrough"] kbd').textContent`),'F7');
+ await toolbarKey('ArrowDown',40);
+ assert.equal(await c.evaluate('document.activeElement.dataset.jotToolbarChoice'),'format.math');
+ await toolbarKey('End',35);
+ assert.equal(await c.evaluate('document.activeElement.dataset.jotToolbarChoice'),'insert.thematic-break');
+ await screenshot('toolbar-more-menu');
  await toolbarKey('Escape',27);
  await c.evaluate('toolbarEditor.input.setSelection(5,10);toolbarEditor.focus()');
  await toolbarKey('F7',118);
@@ -213,11 +228,21 @@ try {
  assert(await c.evaluate(`!!document.querySelector('.jot-live-preview-strong')&&!document.querySelector('.jot-live-preview-source-math-block')`),'ordinary text keeps its preview and a new query releases the old math source');
  assert.equal(await c.evaluate('toolbarEditor.confirmedValue'),mathSearchSource,'search only changes selection and presentation');
  evidence.push({case:'search-literal-formula-delimiters-and-replacement-race'});
+ await c.evaluate(`for (const id of ['format.strikethrough','format.math','task.toggle-checked','list.renumber','insert.code-block','insert.math-block','insert.thematic-break']) {
+   toolbarEditor.commands.unregister(id);
+ }`);
+ assert(await c.evaluate(`${toolbarButton('toolbar.open-more')}.hidden && !${toolbarButton('toolbar.open-image')}.hidden`),
+   'a separate image picker must not leave an empty More menu in a reduced command registry');
  await c.evaluate(`disposeToolbarEditor();createToolbarEditor({className:'external-theme',groups:[['format.bold'],['search.open']],renderIcon(id,document){return id==='format.bold'?document.createTextNode('B'):undefined}});toolbarEditor.open()`);
  assert.deepEqual(await c.evaluate(`[...document.querySelectorAll('.external-theme [data-jot-toolbar-command]')].map(button=>[button.dataset.jotToolbarCommand,button.textContent])`),[['format.bold','B'],['search.open','']],'host can replace groups, icon and class');
  await c.evaluate(`disposeToolbarEditor();createToolbarEditor(null);toolbarEditor.open()`);
  await c.evaluate(`toolbarEditor.input.setSelection(0,5);toolbarEditor.executeCommand('format.bold',undefined,{preserveViewport:true});toolbarEditor.settled()`);
  assert.equal(await c.evaluate('toolbarEditor.confirmedValue'),'**ready**','external UI can invoke commands without the toolbar plugin');
+ await checkEditorInputs(c, toolbarKey, toolbarClick, toolbarButton);
+ await checkCodeFenceInput(c, toolbarKey);
+ evidence.push({case:'code-fence-enter-and-empty-line'});
+ await checkEditorLocales(c);
+ evidence.push({case:'component-ui-language'});
  await c.evaluate(`disposeToolbarEditor();document.querySelector('#integration').style.display=''`);
  assert.equal(await c.evaluate('document.querySelector(".jot-editor-toolbar")'),null,'disposal unmounts the toolbar');
  evidence.push({case:'optional-editor-toolbar'});
@@ -420,23 +445,29 @@ try {
  assert.equal(await c.evaluate('compatEditor.value'),compatSource.replace('```mermaid','``` mermaid'));
  evidence.push({case:'opt-in-unspaced-fence-and-edit'});
 
- await c.evaluate(`compatEditor.setValue('')`);
- await waitForEvaluation(c,`compatEditor.value===compatEditor.confirmedValue && compatEditor.session.adapter.analysis?.state==='complete'`,20000);
- await c.evaluate('compatEditor.livePreview.settled()');
- const emptyPoint=await c.evaluate(`(()=>{const r=document.querySelector('#compat .cm-line').getBoundingClientRect();return{x:r.left+4,y:(r.top+r.bottom)/2}})()`);
- for(const type of ['mousePressed','mouseReleased'])await c.command('Input.dispatchMouseEvent',{type,button:'left',clickCount:1,...emptyPoint});
- await c.evaluate(`(()=>{const original=compatWorker.postMessage,own=Object.hasOwn(compatWorker,'postMessage'),pending=[];compatWorker.postMessage=function(...args){pending.push(args)};window.releaseCompatGate=()=>{if(own)compatWorker.postMessage=original;else delete compatWorker.postMessage;for(const args of pending)original.apply(compatWorker,args);return pending.length}})()`);
- await c.command('Input.insertText',{text:fence+'mermaid'});
- for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
- await c.command('Input.insertText',{text:fence});
- for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:'Home',code:'Home',windowsVirtualKeyCode:36});
- await c.command('Input.imeSetComposition',{text:'shi',selectionStart:3,selectionEnd:3});
- await c.command('Input.insertText',{text:'是'});
- assert((await c.evaluate('releaseCompatGate()'))>0,'the compatibility test delayed real Worker messages');
- await waitForEvaluation(c,`compatEditor.value===compatEditor.confirmedValue && compatEditor.session.adapter.analysis?.state==='complete'`,20000);
- await c.evaluate('compatEditor.livePreview.settled()');
- assert.equal(await c.evaluate('compatEditor.value'),fence+'mermaid\n是\n'+fence,'rapid IME input keeps the compatible closing fence intact');
- assert.equal(await c.evaluate(`compatEditor.session.adapter.blocks.blocks.filter(node=>node.kind==='fenced-code').length`),1);
+ for (const manual of [false, true]) {
+  await c.evaluate(`compatEditor.setValue('')`);
+  await waitForEvaluation(c,`compatEditor.value===compatEditor.confirmedValue && compatEditor.session.adapter.analysis?.state==='complete'`,20000);
+  await c.evaluate('compatEditor.livePreview.settled()');
+  const emptyPoint=await c.evaluate(`(()=>{const r=document.querySelector('#compat .cm-line').getBoundingClientRect();return{x:r.left+4,y:(r.top+r.bottom)/2}})()`);
+  for(const type of ['mousePressed','mouseReleased'])await c.command('Input.dispatchMouseEvent',{type,button:'left',clickCount:1,...emptyPoint});
+  await c.evaluate(`(()=>{const original=compatWorker.postMessage,own=Object.hasOwn(compatWorker,'postMessage'),pending=[];compatWorker.postMessage=function(...args){pending.push(args)};window.releaseCompatGate=()=>{if(own)compatWorker.postMessage=original;else delete compatWorker.postMessage;for(const args of pending)original.apply(compatWorker,args);return pending.length}})()`);
+  await c.command('Input.insertText',{text:fence+'mermaid'});
+  for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:'Enter',code:'Enter',modifiers:manual?8:0,windowsVirtualKeyCode:13});
+  if(manual) {
+   await c.command('Input.insertText',{text:fence});
+   for(const type of ['keyDown','keyUp'])await c.command('Input.dispatchKeyEvent',{type,key:'Home',code:'Home',windowsVirtualKeyCode:36});
+  } else {
+   assert.equal(await c.evaluate('compatEditor.input.view.state.selection.main.head'),fence.length+'mermaid'.length+1);
+  }
+  await c.command('Input.imeSetComposition',{text:'shi',selectionStart:3,selectionEnd:3});
+  await c.command('Input.insertText',{text:'是'});
+  assert((await c.evaluate('releaseCompatGate()'))>0,'the compatibility test delayed real Worker messages');
+  await waitForEvaluation(c,`compatEditor.value===compatEditor.confirmedValue && compatEditor.session.adapter.analysis?.state==='complete'`,20000);
+  await c.evaluate('compatEditor.livePreview.settled()');
+  assert.equal(await c.evaluate('compatEditor.value'),fence+'mermaid\n是\n'+fence,'rapid IME input keeps the compatible closing fence intact');
+  assert.equal(await c.evaluate(`compatEditor.session.adapter.blocks.blocks.filter(node=>node.kind==='fenced-code').length`),1);
+ }
  evidence.push({case:'opt-in-rapid-ime-delayed-worker'});
 
  // The lazy math renderer is a component capability, not a Demo-only facade.

@@ -1,3 +1,4 @@
+import { editorI18nAt } from "../core/i18n.js";
 import type { EditorCommandRegistry } from "../core/commands/index.js";
 import { displayShortcut, mountShortcutSettings } from "./shortcut-settings.js";
 
@@ -9,6 +10,7 @@ export function mountEditorCommandUI(root: HTMLElement, options: {
   readonly openShortcutSettings?: () => void;
 }): { open(): void; openSettings(): void; dispose(): void } {
   const document = root.ownerDocument;
+  const i18n = editorI18nAt(root);
   const deviceIsMac = /Mac|iPhone|iPad/u.test(document.defaultView?.navigator.platform ?? "");
   const overlay = document.createElement("div");
   overlay.className = "jot-command-overlay";
@@ -22,16 +24,16 @@ export function mountEditorCommandUI(root: HTMLElement, options: {
   const title = document.createElement("strong");
   const closeButton = document.createElement("button");
   closeButton.type = "button";
-  closeButton.textContent = "关闭 · Esc";
+  i18n.bind(closeButton, "textContent", "Close · Esc");
   const body = document.createElement("div");
   const input = document.createElement("input");
   input.type = "search";
-  input.placeholder = "搜索命令名称或 ID…";
-  input.setAttribute("aria-label", "搜索编辑命令");
+  i18n.bind(input, "placeholder", "Search commands by name or ID…");
+  i18n.bind(input, "aria-label", "Search editor commands");
   const list = document.createElement("div");
   list.className = "jot-command-list";
   list.setAttribute("role", "listbox");
-  list.setAttribute("aria-label", "编辑命令");
+  i18n.bind(list, "aria-label", "Editor commands");
   const status = document.createElement("p");
   status.className = "jot-command-status";
   status.setAttribute("role", "status");
@@ -51,12 +53,12 @@ export function mountEditorCommandUI(root: HTMLElement, options: {
     void Promise.resolve().then(() => options.execute(id)).then((handled) => {
       if (!handled && !disposed) {
         open();
-        status.textContent = "当前位置无法执行此命令；请先选择对应内容。";
+        i18n.bind(status, "textContent", "Select the relevant content before running this command.");
       }
     }).catch((error: unknown) => {
       if (disposed) return;
       open();
-      status.textContent = error instanceof Error ? error.message : "命令执行失败";
+      i18n.bind(status, "textContent", error instanceof Error ? error.message : "Command failed");
     });
   };
   const select = () => {
@@ -73,7 +75,7 @@ export function mountEditorCommandUI(root: HTMLElement, options: {
     const platform = options.commands.shortcutPlatform;
     const mac = platform === undefined ? deviceIsMac : platform === "mac";
     const query = input.value.toLocaleLowerCase().trim();
-    matches = options.commands.commands.filter((command) =>
+    matches = options.commands.commands.map(command => i18n.command(command)).filter((command) =>
       `${command.title} ${command.id} ${command.category ?? ""} ${command.description ?? ""}`
         .toLocaleLowerCase().includes(query))
       .sort((left, right) => rank(left.title, left.id, query) - rank(right.title, right.id, query));
@@ -98,7 +100,7 @@ export function mountEditorCommandUI(root: HTMLElement, options: {
       item.addEventListener("click", () => activate(command.id));
       list.append(item);
     }
-    status.textContent = matches.length === 0 ? "没有匹配的命令" : "↑↓ 选择 · Enter 执行 · Esc 返回编辑";
+    i18n.bind(status, "textContent", matches.length === 0 ? "No matching commands" : "↑↓ Select · Enter Run · Esc Return to editor");
     select();
   };
   const instance = ++nextInstance;
@@ -106,8 +108,8 @@ export function mountEditorCommandUI(root: HTMLElement, options: {
     settings?.dispose();
     settings = undefined;
     mode = "palette";
-    title.textContent = "命令面板";
-    dialog.setAttribute("aria-label", "编辑命令面板");
+    i18n.bind(title, "textContent", "Command palette");
+    i18n.bind(dialog, "aria-label", "Editor command palette");
     body.replaceChildren(input, list, status);
     overlay.hidden = false;
     input.value = "";
@@ -122,8 +124,8 @@ export function mountEditorCommandUI(root: HTMLElement, options: {
     }
     settings?.dispose();
     mode = "settings";
-    title.textContent = "快捷键设置";
-    dialog.setAttribute("aria-label", "快捷键设置");
+    i18n.bind(title, "textContent", "Keyboard shortcuts");
+    i18n.bind(dialog, "aria-label", "Keyboard shortcuts");
     body.replaceChildren();
     overlay.hidden = false;
     settings = mountShortcutSettings(body, options.commands);
@@ -161,10 +163,12 @@ export function mountEditorCommandUI(root: HTMLElement, options: {
   dialog.append(header, body);
   overlay.append(dialog);
   root.append(overlay);
-  const unsubscribe = options.commands.subscribe(() => {
+  const refresh = () => {
     if (!overlay.hidden && mode === "palette") render();
-  });
-  return { open, openSettings, dispose() { disposed = true; unsubscribe(); settings?.dispose(); overlay.remove(); } };
+  };
+  const unsubscribe = options.commands.subscribe(refresh);
+  const stopLocale = i18n.subscribe(refresh);
+  return { open, openSettings, dispose() { disposed = true; unsubscribe(); stopLocale(); settings?.dispose(); overlay.remove(); } };
 }
 
 let nextInstance = 0;

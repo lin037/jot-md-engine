@@ -225,7 +225,7 @@ export class LivePreviewWidget extends WidgetType {
       beginLivePreviewPointerSelection(view, event, {
         element,
         range: visualRange,
-        offset,
+        offset: current.#descriptor.kind === "image" ? sourceFrom + 2 : offset,
         ...(["math-block", "inline-math", "image", "thematic-break", "plugin-block"].includes(current.#descriptor.kind)
           ? { opaque: { from: sourceFrom, to: sourceTo } }
           : {}),

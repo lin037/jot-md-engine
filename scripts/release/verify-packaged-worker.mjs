@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { isMainThread, MessageChannel, Worker, workerData } from "node:worker_threads";
-import { EditorDocumentSession, range } from "@jot-md/editor/adapter";
-import { bootstrapEditorWorker } from "@jot-md/editor/worker";
-import init, { WasmEditorHost } from "@jot-md/editor/wasm";
+import { EditorDocumentSession, range } from "@lin037/jot-md-engine/adapter";
+import { bootstrapEditorWorker } from "@lin037/jot-md-engine/worker";
+import init, { WasmEditorHost } from "@lin037/jot-md-engine/wasm";
 
 // 此文件由 package:verify 复制到已安装编辑器的临时项目中执行。
 if (isMainThread) {
@@ -37,7 +37,7 @@ if (isMainThread) {
   }
 } else {
   // Node 通过文件系统读取 Wasm；浏览器中的默认初始化器直接请求相邻的 .wasm 文件。
-  const binary = new URL("./editor_wasm_bg.wasm", import.meta.resolve("@jot-md/editor/wasm"));
+  const binary = new URL("./editor_wasm_bg.wasm", import.meta.resolve("@lin037/jot-md-engine/wasm"));
   const bytes = await readFile(binary);
   await bootstrapEditorWorker({
     endpoint: workerData,

@@ -289,6 +289,9 @@ export const livePreviewTheme = EditorView.baseTheme({
     overflowWrap: "normal",
     wordBreak: "normal",
   },
+  ".cm-content.jot-live-preview-content .cm-line.jot-live-preview-empty-container-line.jot-code-line": {
+    minHeight: "var(--jot-code-line-height)",
+  },
   // Quoted code has no separate scroll wrapper. Preserve the configured code
   // background when the quote becomes active instead of tinting every code
   // row only after the next confirmed projection.

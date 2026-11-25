@@ -1,30 +1,34 @@
+import { editorI18nAt, type EditorI18n } from "../core/i18n.js";
+import { ShortcutError } from "../core/commands/registry.js";
 import type { EditorCommandRegistry } from "../core/commands/index.js";
 
 /** Optional, framework-neutral keybinding form. Persistence belongs to the host. */
 export function mountShortcutSettings(
   root: HTMLElement,
   commands: EditorCommandRegistry,
+  i18n: EditorI18n = editorI18nAt(root),
 ): { dispose(): void } {
   const document = root.ownerDocument;
   const deviceIsMac = /Mac|iPhone|iPad/u.test(document.defaultView?.navigator.platform ?? "");
   const form = document.createElement("form");
   form.className = "jot-shortcut-settings";
+  const release = i18n.scope(form);
   const fields = document.createElement("div");
   const help = document.createElement("p");
   const error = document.createElement("p");
   error.setAttribute("role", "alert");
   const save = document.createElement("button");
   save.type = "submit";
-  save.textContent = "保存快捷键";
+  i18n.bind(save, "textContent", "Save shortcuts");
   const reset = document.createElement("button");
   reset.type = "button";
-  reset.textContent = "恢复默认";
+  i18n.bind(reset, "textContent", "Restore defaults");
   const inputs = new Map<string, HTMLInputElement>();
   const render = () => {
     const mac = commands.shortcutPlatform === undefined ? deviceIsMac : commands.shortcutPlatform === "mac";
-    help.textContent = mac
-      ? "用连字符连接，例如 Control-Shift-p。Mod 对应 Command（⌘），Alt 对应 Option（⌥）。留空可禁用。"
-      : "用连字符连接，例如 Ctrl-Shift-p。Mod 对应 Ctrl。留空可禁用。";
+    i18n.bind(help, "textContent", mac
+      ? "Use hyphens, e.g. Control-Shift-p. Mod is Command (⌘), Alt is Option (⌥). Leave blank to disable."
+      : "Use hyphens, e.g. Ctrl-Shift-p. Mod is Ctrl. Leave blank to disable.");
     // Saving by Enter notifies the registry while focus is still in a field.
     // Only restore a field this form owned; external editor/search inputs and
     // the persistent Save/Reset buttons must retain their own focus.
@@ -41,14 +45,15 @@ export function mountShortcutSettings(
       const label = document.createElement("label");
       label.className = "jot-shortcut-settings__row";
       const title = document.createElement("span");
-      title.textContent = commands.command(binding.command)?.title ?? binding.command;
+      const phrase = commands.command(binding.command)?.title ?? binding.command;
+      i18n.bind(title, "textContent", phrase);
       const input = document.createElement("input");
       input.type = "text";
       input.name = binding.id;
       const key = active.get(binding.id);
       if (key !== undefined) input.value = input.defaultValue = displayShortcut(key, mac);
-      input.setAttribute("aria-label", title.textContent);
-      input.placeholder = "未绑定";
+      i18n.bind(input, "aria-label", phrase);
+      i18n.bind(input, "placeholder", "Unassigned");
       label.append(title, input);
       fields.append(label);
       inputs.set(binding.id, input);
@@ -71,20 +76,21 @@ export function mountShortcutSettings(
         // Command or Ctrl.
         return [id, label === "" ? null : input.defaultValue === label ? active.get(id)! : parseShortcutLabel(label)];
       })));
-      error.textContent = "已保存";
+      i18n.bind(error, "textContent", "Saved");
     } catch (cause) {
-      error.textContent = cause instanceof Error ? cause.message : String(cause);
+      if (cause instanceof ShortcutError) i18n.bind(error, "textContent", cause.phrase, ...cause.values);
+      else i18n.bind(error, "textContent", cause instanceof Error ? cause.message : String(cause));
     }
   });
   reset.addEventListener("click", () => {
     commands.resetShortcuts();
-    error.textContent = "已恢复默认";
+    i18n.bind(error, "textContent", "Defaults restored");
   });
   form.append(help, fields, error, save, reset);
   root.append(form);
   render();
   const unsubscribe = commands.subscribe(render);
-  return { dispose() { unsubscribe(); form.remove(); } };
+  return { dispose() { unsubscribe(); release(); form.remove(); } };
 }
 
 export function displayShortcut(key: string, mac: boolean): string {

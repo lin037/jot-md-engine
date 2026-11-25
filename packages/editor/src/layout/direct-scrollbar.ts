@@ -1,3 +1,4 @@
+import { editorI18nAt } from "../core/i18n.js";
 export type EditorScrollbarMode = "native" | "direct";
 
 export interface DirectScrollbarOptions {
@@ -5,7 +6,7 @@ export interface DirectScrollbarOptions {
   readonly contentElement: HTMLElement;
   /** A positioned wrapper can keep the track inside an external panel or a shadow root. */
   readonly trackHost?: HTMLElement;
-  readonly label?: string;
+  readonly label?: string | (() => string);
   readonly minThumbSize?: number;
   readonly installStyles?: boolean;
   /** 通知宿主并标明手势是否明确指向文末，随后写入 scrollTop。 */
@@ -37,6 +38,7 @@ interface DragState {
 export class DirectScrollbar {
   readonly #scrollElement: HTMLElement;
   readonly #track: HTMLDivElement;
+  readonly #stopLocale: () => void;
   readonly #thumb: HTMLDivElement;
   readonly #view: Window | undefined;
   readonly #resizeObserver: ResizeObserver | undefined;
@@ -68,7 +70,13 @@ export class DirectScrollbar {
     this.#track.className = this.#local ? "jot-direct-scrollbar jot-direct-scrollbar--local" : "jot-direct-scrollbar";
     this.#track.setAttribute("role", "scrollbar");
     this.#track.setAttribute("aria-orientation", "vertical");
-    this.#track.setAttribute("aria-label", options.label ?? "垂直滚动条");
+    const i18n = editorI18nAt(options.scrollElement);
+    const updateLabel = () => {
+      this.#track.lang = i18n.locale;
+      this.#track.setAttribute("aria-label", typeof options.label === "function" ? options.label() : options.label ?? i18n.t("Vertical scrollbar"));
+    };
+    updateLabel();
+    this.#stopLocale = i18n.subscribe(updateLabel);
     this.#track.tabIndex = 0;
     if (options.scrollElement.id !== "") {
       this.#track.setAttribute("aria-controls", options.scrollElement.id);
@@ -134,6 +142,7 @@ export class DirectScrollbar {
   }
 
   dispose(): void {
+    this.#stopLocale();
     if (this.#disposed) return;
     this.#disposed = true;
     if (this.#frame !== undefined) this.#view?.cancelAnimationFrame(this.#frame);

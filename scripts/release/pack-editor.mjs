@@ -11,22 +11,17 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
-const standalone = process.argv.includes("--standalone");
-const output = resolve(root, standalone ? "dist/release" : "dist/packages");
+const output = resolve(root, "dist/release");
 const cache = resolve(root, ".tmp/npm-cache");
 rmSync(output, { recursive: true, force: true });
 mkdirSync(output, { recursive: true });
 mkdirSync(cache, { recursive: true });
 
 run("pnpm", ["run", "build:editor"]);
-const packages = standalone ? [packStandalone()] : [
-  describe(pack("packages/editor-protocol", output), output),
-  describe(pack("packages/editor", output), output),
-];
 const manifest = {
   schemaVersion: 1,
   generatedAt: new Date().toISOString(),
-  packages,
+  packages: [packEditor()],
 };
 writeFileSync(
   resolve(output, "manifest.json"),
@@ -36,13 +31,13 @@ writeFileSync(
 console.log(JSON.stringify(manifest, null, 2));
 
 function pack(directory, destination) {
-  // pnpm rewrites workspace:* to the published sibling version in the tarball.
+  // pnpm resolves workspace:* to the bundled protocol version.
   const packed = run("pnpm", ["--dir", resolve(root, directory), "pack", "--json",
     "--pack-destination", destination], true);
   return JSON.parse(packed.stdout).filename;
 }
 
-function packStandalone() {
+function packEditor() {
   const staging = mkdtempSync(resolve(tmpdir(), "jot-editor-release-"));
   try {
     const protocolArchive = pack("packages/editor-protocol", staging);
@@ -63,20 +58,20 @@ function packStandalone() {
     const packed = run("npm", [
       "pack", "--ignore-scripts", "--json", "--pack-destination", output, "--cache", cache,
     ], true, editor);
-    return describe(JSON.parse(packed.stdout)[0].filename, output);
+    return describe(JSON.parse(packed.stdout)[0].filename);
   } finally {
     rmSync(staging, { recursive: true, force: true });
   }
 }
 
-function describe(filename, directory) {
+function describe(filename) {
   const result = run("npm", [
     "pack",
-    resolve(directory, filename),
+    resolve(output, filename),
     "--dry-run",
     "--json",
     "--pack-destination",
-    directory,
+    output,
     "--cache",
     cache,
   ], true);
@@ -85,15 +80,15 @@ function describe(filename, directory) {
   const packageFiles = /^(?:dist\/|src\/|(?:LICENSE|README\.md|THIRD-PARTY-NOTICES\.txt|package\.json)$)/u;
   const appDirectory = /(?:^|\/)(?:apps|demo|benchmarks?)(?:\/|$)/u;
   const protocolPrefix = "node_modules/@jot-md/editor-protocol/";
-  if (standalone && !parsed.files.some(file => file.path === protocolPrefix + "dist/index.js")) {
+  if (!parsed.files.some(file => file.path === protocolPrefix + "dist/index.js")) {
     throw new Error("Standalone editor is missing the bundled protocol");
   }
   const unexpected = parsed.files.find(({ path }) => {
-    const member = standalone && path.startsWith(protocolPrefix) ? path.slice(protocolPrefix.length) : path;
+    const member = path.startsWith(protocolPrefix) ? path.slice(protocolPrefix.length) : path;
     return !packageFiles.test(member) || appDirectory.test(path);
   });
   if (unexpected !== undefined) {
-    throw new Error(`Unexpected archive entry in ${directory}: ${unexpected.path}`);
+    throw new Error(`Unexpected archive entry in ${filename}: ${unexpected.path}`);
   }
   return {
     name: parsed.name,

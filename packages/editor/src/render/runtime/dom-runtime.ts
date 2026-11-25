@@ -1,3 +1,4 @@
+import { editorI18nAt, type EditorI18n } from "../../core/i18n.js";
 import type {
   RenderNode,
   TextRange,
@@ -27,7 +28,7 @@ import {
   resolveSurfaceImageMetadata,
   stamp,
 } from "../../components/common/render-utils.js";
-import type { PreTextSurfaceItem } from "../../layout/pretext/filter.js";
+import { preTextLabel, type PreTextSurfaceItem } from "../../layout/pretext/filter.js";
 import { listDisplayIndentCss } from "../../layout/list-geometry.js";
 import { VirtualAxis } from "../../core/virtual/virtual-axis.js";
 import {
@@ -50,6 +51,7 @@ export interface RenderComponent {
  */
 export class RenderRuntime {
   readonly #options: RenderRuntimeOptions;
+  readonly i18n: EditorI18n;
   readonly #translator = new RenderNodeTranslator();
   readonly #components = new WeakMap<HTMLElement, RenderComponent>();
   readonly #pendingNodes = new WeakMap<HTMLElement, RenderNode>();
@@ -58,6 +60,7 @@ export class RenderRuntime {
   readonly #pendingTableWidths = new Map<string, Map<number, number>>();
 
   constructor(options: RenderRuntimeOptions) {
+    this.i18n = editorI18nAt(options.root);
     this.#options = options;
   }
 
@@ -312,7 +315,12 @@ export class RenderRuntime {
     const estimate = element.querySelector<HTMLElement>('[data-jot-pretext-role="estimate"]');
     const preview = element.querySelector<HTMLElement>('[data-jot-pretext-role="preview"]');
     const evidence = element.querySelector<HTMLElement>('[data-jot-pretext-role="evidence"]');
-    if (label !== null && label.textContent !== item.label) label.textContent = item.label;
+    const t = this.i18n.t.bind(this.i18n);
+    // Advanced render hosts may supply their own label for a projected item.
+    const blockLabel = item.label === preTextLabel(item.node)
+      ? () => preTextLabel(item.node, t)
+      : () => item.label;
+    if (label) this.i18n.bind(label, "textContent", blockLabel);
     const estimatedLabel = `${Math.round(item.boxHeight)} + ${Math.round(item.blockGap)} px`;
     if (estimate !== null && estimate.textContent !== estimatedLabel) {
       estimate.textContent = estimatedLabel;
@@ -321,29 +329,18 @@ export class RenderRuntime {
       preview.textContent = item.contentText;
     }
     if (preview !== null) preview.title = item.sourcePreview;
-    const evidenceText = [
-      item.evidence.strategy,
-      ...(item.evidence.textLayout === undefined
-        ? []
-        : [`layout ${item.evidence.textLayout}`]),
-      `${item.evidence.sourceLines} source line(s)`,
-      `${item.evidence.visualLines} visual line(s)`,
-      ...(item.evidence.leadingWhitespaceColumns === undefined ||
-        item.evidence.leadingWhitespaceColumns === 0
-        ? []
-        : [`leading ${item.evidence.leadingWhitespaceColumns} col(s)`]),
-      ...(item.evidence.inlineMathCount === undefined
-        ? []
-        : [`${item.evidence.inlineMathCount} inline math`]),
-      ...(item.evidence.rows === undefined ? [] : [`${item.evidence.rows} row(s)`]),
-      ...(item.evidence.columns === undefined ? [] : [`${item.evidence.columns} col(s)`]),
-      ...(item.evidence.aspectRatio === undefined
-        ? []
-        : [`ratio ${item.evidence.aspectRatio.toFixed(2)}`]),
-    ].join(" · ");
-    if (evidence !== null && evidence.textContent !== evidenceText) {
-      evidence.textContent = evidenceText;
-    }
+    if (evidence) this.i18n.bind(evidence, "textContent", () => {
+      const e = item.evidence;
+      const details = [e.strategy];
+      if (e.textLayout !== undefined) details.push(t("layout $1", e.textLayout));
+      details.push(t("$1 source line(s)", e.sourceLines), t("$1 visual line(s)", e.visualLines));
+      if (e.leadingWhitespaceColumns) details.push(t("leading $1 col(s)", e.leadingWhitespaceColumns));
+      if (e.inlineMathCount !== undefined) details.push(t("$1 inline math", e.inlineMathCount));
+      if (e.rows !== undefined) details.push(t("$1 row(s)", e.rows));
+      if (e.columns !== undefined) details.push(t("$1 col(s)", e.columns));
+      if (e.aspectRatio !== undefined) details.push(t("ratio $1", e.aspectRatio.toFixed(2)));
+      return details.join(" · ");
+    });
     element.className = [
       "jot-pretext-block",
       `jot-pretext-block--${item.component}`,
@@ -390,7 +387,7 @@ export class RenderRuntime {
       delete element.dataset["jotListIndent"];
       delete element.dataset["jotListLevel"];
     }
-    element.setAttribute("aria-label", `${item.label}, estimated ${estimatedLabel}`);
+    this.i18n.bind(element, "aria-label", () => t("$1, estimated $2", blockLabel(), estimatedLabel));
   }
 
   /**
@@ -435,6 +432,7 @@ export class RenderRuntime {
     return {
       document: this.#options.root.ownerDocument,
       mode: "preview",
+      i18n: this.i18n,
       sourceForRange: (range) => this.#source(range),
       onDeferred: (deferred, host) => {
         this.#pendingNodes.set(host, deferred);
@@ -444,6 +442,7 @@ export class RenderRuntime {
       resolveImageMetadata: (source) => resolveSurfaceImageMetadata(
         this.#options.resolveImageMetadata, source, this.#options.root.ownerDocument,
       ),
+      ...(this.#options.resolveImageSrc === undefined ? {} : { resolveImageSrc: this.#options.resolveImageSrc }),
       ...(this.#options.renderMath === undefined
         ? {}
         : { renderMath: this.#options.renderMath }),

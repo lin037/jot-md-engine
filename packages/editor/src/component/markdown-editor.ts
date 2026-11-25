@@ -1,4 +1,5 @@
-import type { EditorSelection, Revision, TextRange } from "@jot-md/editor-protocol";
+import { EditorI18n, type EditorTranslations } from "../core/i18n.js";
+import type { DocumentPatch, EditorSelection, Revision, TextRange } from "@jot-md/editor-protocol";
 import {
   DEFAULT_EDITOR_BUDGETS,
   EditorDocumentSession,
@@ -13,7 +14,7 @@ import {
   type EditorHistorySnapshot,
 } from "../hosts/source/codemirror-source.js";
 import { createDefaultEditorCommandRegistry } from "../components/commands.js";
-import { EditorCommandRegistry, type TableInsertionSize } from "../core/commands/index.js";
+import { EditorCommandRegistry, type EditorCommandExecution, type EditorImage, type SaveEditorImage, type TableInsertionSize } from "../core/commands/index.js";
 import { replaceTableCell as createTableCellEdit } from "../components/table/source.js";
 import type { TableCommandExecutor } from "../components/table/commands.js";
 import {
@@ -48,15 +49,22 @@ export type MarkdownEditorMode =
 
 export interface MarkdownEditorOptions {
   readonly root: HTMLElement;
+  /** UI language tag or "auto" to follow the browser. */
+  readonly locale?: string;
+  readonly translations?: EditorTranslations;
   readonly session: EditorDocumentSessionOptions;
   /** Restore undo and redo if the document ID and initial text match. */
   readonly history?: EditorHistorySnapshot | undefined;
   readonly mode?: MarkdownEditorMode;
   /** `mode` 为 `split` 时显示在 Source 旁边的 Surface，默认是 Preview。 */
   readonly surfaceMode?: EditorSurfaceMode;
+  /** Persist pasted or picked image files and return the destination to write in Markdown. */
+  readonly saveImage?: SaveEditorImage;
+  /** Resolve a stored destination into a browser-loadable image URL for both rendering hosts. */
+  readonly resolveImageSrc?: (destination: string) => string | undefined;
   readonly input?: Omit<
     CodeMirrorSourceOptions,
-    "root" | "session" | "transactions" | "onError" | "commands" | "history"
+    "root" | "session" | "transactions" | "onError" | "commands" | "history" | "saveImage"
   >;
   /** 未指定时使用内置的编辑、格式、块结构和表格命令。 */
   readonly commands?: EditorCommandRegistry;
@@ -78,6 +86,12 @@ export interface MarkdownEditorOptions {
   readonly onError?: (error: unknown) => void;
 }
 
+export interface ConfirmedDocumentChange {
+  readonly value: string;
+  readonly revision: Revision;
+  readonly patch: DocumentPatch;
+}
+
 export interface MarkdownEditorCommandOptions {
   /** Keep the current viewport when invoking an edit from external UI. */
   readonly preserveViewport?: boolean;
@@ -90,6 +104,7 @@ export interface MarkdownEditorCommandOptions {
 export class MarkdownEditor {
   readonly session: EditorDocumentSession;
   readonly transactions: EditorTransactionCoordinator;
+  readonly i18n: EditorI18n;
   readonly commands: EditorCommandRegistry;
   readonly input: CodeMirrorSource;
   readonly livePreview: LivePreviewController;
@@ -104,7 +119,8 @@ export class MarkdownEditor {
   readonly #unsubscribeEvents: () => void;
   readonly #commandUI: ReturnType<typeof mountEditorCommandUI>;
   readonly #plugins: EditorPluginRegistry;
-  readonly #commandActions = new Map<string, () => boolean>();
+  readonly #commandActions = new Map<string, { run: () => boolean; available: () => boolean }>();
+  readonly #commandListeners = new Set<(event: EditorCommandExecution) => void>();
   readonly #focusTargets = new Set<{ command: string; target: () => HTMLElement | undefined }>();
   #mode: MarkdownEditorMode;
   #surfaceMode: EditorSurfaceMode;
@@ -145,6 +161,8 @@ export class MarkdownEditor {
     const livePretext = options.livePreview?.pretext ?? options.surface?.pretext;
     this.#readOnly = options.input?.readOnly ?? false;
     this.#root = options.root;
+    this.i18n = new EditorI18n(options.locale, options.translations, options.root.ownerDocument.defaultView);
+    this.i18n.scope(options.root);
     this.#mode = options.mode ?? "split";
     this.#surfaceMode = options.surfaceMode ?? modeSurface(this.#mode);
     const onError = options.onError ?? options.session.onError;
@@ -204,7 +222,12 @@ export class MarkdownEditor {
       commands: this.commands,
       pluginRegistry: this.#plugins,
       headingFolds: this.headingFolds,
+      ...(options.resolveImageSrc === undefined ? {} : { resolveImageSrc: options.resolveImageSrc }),
       ...options.livePreview,
+      ...(options.saveImage === undefined ? {} : { onImagePaste: (event: ClipboardEvent) => this.input.pasteImages(event) }),
+      onToggleTask: from => this.input.executeCommand("task.toggle-checked", selection(from), {
+        taskMarkerFrom: from, retainCurrentSelection: true, preserveViewport: true,
+      }),
       ...(options.livePreview?.renderMath !== undefined
         ? {}
         : options.surface?.renderMath === undefined
@@ -259,6 +282,7 @@ export class MarkdownEditor {
       transactions: this.transactions,
       commands: this.commands,
       ...options.input,
+      ...(options.saveImage === undefined ? {} : { saveImage: options.saveImage }),
       history: historySnapshot,
       extensions: inputExtensions,
       onInputTransaction: (event) => {
@@ -266,6 +290,14 @@ export class MarkdownEditor {
         onInputTransaction?.(event);
       },
       readOnly: true,
+      canHandleAction: action => this.#canHandleAction(action) ||
+        (options.input?.canHandleAction?.(action) ?? options.input?.onCommandAction !== undefined),
+      onCommandExecuted: event => {
+        for (const listener of this.#commandListeners) {
+          try { listener(event); } catch (error) { this.#onError?.(error); }
+        }
+        options.input?.onCommandExecuted?.(event);
+      },
       onCommandAction: (action) => this.#commandAction(action) || options.input?.onCommandAction?.(action) === true,
       ...(this.#onError === undefined ? {} : { onError: this.#onError }),
     });
@@ -281,6 +313,7 @@ export class MarkdownEditor {
       session: this.session,
       pluginRegistry: this.#plugins,
       headingFolds: this.headingFolds,
+      ...(options.resolveImageSrc === undefined ? {} : { resolveImageSrc: options.resolveImageSrc }),
       ...options.surface,
       ...(initialMetrics === undefined ? {} : { pretext: {
         ...options.surface?.pretext,
@@ -325,6 +358,13 @@ export class MarkdownEditor {
     });
     this.#root.addEventListener("keydown", this.#onShortcutKeyDown);
     try { this.#plugins.activate(this); } catch (error) { this.dispose(); throw error; }
+  }
+
+  get locale(): string { return this.i18n.locale; }
+
+  setLocale(locale: string): void {
+    this.#assertLive();
+    this.i18n.setLocale(locale);
   }
 
   get mode(): MarkdownEditorMode {
@@ -491,6 +531,17 @@ export class MarkdownEditor {
     );
   }
 
+  canExecuteCommand(id: string, anchor?: number): boolean {
+    if (!this.#opened || this.#disposed) return false;
+    return this.input.canExecuteCommand(id, anchor === undefined ? undefined : selection(anchor));
+  }
+
+  onCommandExecuted(listener: (event: EditorCommandExecution) => void): () => void {
+    this.#assertLive();
+    this.#commandListeners.add(listener);
+    return () => { this.#commandListeners.delete(listener); };
+  }
+
   openCommandPalette(): void { this.#assertOpened(); this.#commandUI.open(); }
 
   /** Insert a Markdown table at the current selection using the registered command. */
@@ -499,13 +550,20 @@ export class MarkdownEditor {
     return this.input.executeCommand("insert.table", undefined, { ...options, tableSize: size });
   }
 
+  /** Insert a saved image at the current source selection. */
+  insertImage(image: EditorImage, options: MarkdownEditorCommandOptions = {}): boolean {
+    this.#assertOpened();
+    return this.input.executeCommand("insert.image", undefined, { ...options, images: [image] });
+  }
+
   /** Route a registered command's host action to the UI that owns it. */
-  registerCommandAction(action: string, handler: () => boolean): () => void {
+  registerCommandAction(action: string, handler: () => boolean, available: () => boolean = () => true): () => void {
     this.#assertLive();
     if (this.#commandActions.has(action)) throw new Error(`duplicate editor command action: ${action}`);
-    this.#commandActions.set(action, handler);
+    const entry = { run: handler, available };
+    this.#commandActions.set(action, entry);
     return () => {
-      if (this.#commandActions.get(action) === handler) this.#commandActions.delete(action);
+      if (this.#commandActions.get(action) === entry) this.#commandActions.delete(action);
     };
   }
 
@@ -591,6 +649,16 @@ export class MarkdownEditor {
     this.surface.scrollToEnd();
   }
 
+  /** Fires once per accepted document transaction, with the confirmed Markdown snapshot. */
+  onDocumentChange(listener: (change: ConfirmedDocumentChange) => void): () => void {
+    return this.subscribe(effect => {
+      const patch = effect.documentPatch;
+      if (patch && patch.revision !== patch.baseRevision) {
+        listener({ value: this.confirmedValue, revision: patch.revision, patch });
+      }
+    });
+  }
+
   subscribe(listener: (effect: AdapterEffect) => void): () => void {
     this.#assertLive();
     return this.session.subscribe(listener);
@@ -615,6 +683,7 @@ export class MarkdownEditor {
     this.#lifetime?.abort();
     this.#plugins.dispose(this.#onError);
     this.#commandActions.clear();
+    this.#commandListeners.clear();
     this.#root.ownerDocument.fonts?.removeEventListener("loadingdone", this.#onFontsLoaded);
     this.#root.removeEventListener("jot-image-metadata", this.#onFontsLoaded);
     this.#root.removeEventListener("jot-math-rendered", this.#onFontsLoaded);
@@ -624,6 +693,7 @@ export class MarkdownEditor {
     this.livePreview.dispose();
     this.input.dispose();
     this.surface.dispose();
+    this.i18n.dispose();
     this.#unsubscribeEvents();
     this.events.dispose();
     this.transactions.dispose();
@@ -647,6 +717,18 @@ export class MarkdownEditor {
     if (this.#disposed) throw new Error("Markdown editor disposed");
   }
 
+  #canHandleAction(action: string): boolean {
+    const handler = this.#commandActions.get(action);
+    if (handler) return handler.available();
+    if (action.startsWith("focus.")) return !this.input.view.composing &&
+      (action === "focus.editor" || [...this.#focusTargets].some(entry => entry.command === action));
+    if (action === "editor.exit-block" || action === "editor.insert-before") {
+      return this.livePreview.canExitBlock(action === "editor.insert-before" ? "before" : "after");
+    }
+    if (action === "heading-fold.toggle" || action === "heading-fold.unfold-all") return this.headingFolds.enabled;
+    return ["command.palette", "shortcut.settings", "mode.source", "mode.live-preview", "mode.preview"].includes(action);
+  }
+
   #commandAction(action: string): boolean {
     if (action.startsWith("focus.")) {
       if (!this.#opened || this.#disposed || this.input.view.composing) return false;
@@ -660,7 +742,7 @@ export class MarkdownEditor {
       }
     }
     const handler = this.#commandActions.get(action);
-    if (handler !== undefined) return handler();
+    if (handler !== undefined) return handler.available() && handler.run();
     if (action === "heading-fold.toggle") {
       const active = this.#root.ownerDocument.activeElement;
       const id = active?.closest<HTMLElement>("[data-jot-fold-id]")?.dataset["jotFoldId"];
