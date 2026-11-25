@@ -1,8 +1,14 @@
-# 主线程、Worker 与 Wasm 的通信
+# Wire Protocol
 
-当前通信协议为 `1`。Rust 的 `editor-protocol` 定义线上字段，TypeScript 的 `@jot-md/editor-protocol` 提供对应类型。组件、Worker 和 Wasm 随同一版本构建。普通接入可以直接用 `MarkdownEditor`，自行发送消息时才需要处理下面的边界。[Rust 协议](../../crates/editor-protocol/src/lib.rs) · [TypeScript 协议](../../packages/editor-protocol/src/index.ts)
+**English** · [简体中文](../zh-CN/architecture/protocol.md)
 
-## 一次请求
+The main thread, Web Worker, and Rust/Wasm engine communicate using Protocol **v1**, defined symmetrically in Rust (`crates/editor-protocol`) and TypeScript (`packages/editor-protocol`). When using `MarkdownEditor`, this protocol is handled automatically; the details below apply if you build a custom session or host endpoint.
+
+**Sources**: [crates/editor-protocol/src/lib.rs](../../crates/editor-protocol/src/lib.rs) · [packages/editor-protocol/src/index.ts](../../packages/editor-protocol/src/index.ts)
+
+## Request & Response Envelopes
+
+Every request carries `protocolVersion`, `requestId`, `generation`, and a typed `body`:
 
 ```json
 {
@@ -17,28 +23,31 @@
 }
 ```
 
-响应包含同一个 `requestId` 和 `generation`。握手返回 `engineVersion` 与 `capabilities`。文档操作还需要 `documentId`，由宿主指定。`generation` 区分先后两次打开的文档实例，`revision` 标记同一实例内已经确认的内容版本。主线程请求使用低半区 ID，Worker 后台分析使用高半区，从 `0x80000000` 开始。
+- **Request ID partitioning**: Main-thread requests use `0x00000000`–`0x7fffffff`; Worker background requests use `0x80000000`–`0xffffffff`.
+- **Session & version identifiers**: `documentId` identifies a logical document, `generation` distinguishes separate open lifecycles, and `revision` tracks committed edits within a lifecycle.
 
-| 请求体的 `type` | 对应响应 | 作用 |
+| Request `body.type` | Response `body.type` | Purpose |
 | --- | --- | --- |
-| `handshake` | `handshake-ack` | 查询引擎版本与能力 |
-| `open-document` | `document-opened` | 提交原始 Unicode 文本和语法配置，取得起始 revision、长度及分析状态 |
-| `apply-transaction` | `transaction-committed` | 按 `baseRevision` 应用整笔修改，返回文档补丁。可在同一请求指定提交后的投影 |
-| `project` | `projection-ready` | 请求指定范围或子节点窗口的渲染数据 |
-| `get-snapshot` | `snapshot-ready` | 读取指定 revision 的文本及逐行换行信息 |
-| `schedule-analysis`、`reprioritize-analysis`、`process-analysis-queue`、`cancel-analysis`、`get-analysis-status` | `analysis-state-changed` | 创建、调整、推进或取消分析，以及查询状态 |
-| `close-document` | `document-closed` | 释放指定实例 |
+| `handshake` | `handshake-ack` | Negotiate protocol capabilities and engine version |
+| `open-document` | `document-opened` | Submit initial text and `syntaxProfile`, receiving initial `revision` and `analysis` |
+| `apply-transaction` | `transaction-committed` | Apply an atomic batch of edits at `baseRevision`, returning a `DocumentPatch` and optional projection |
+| `project` | `projection-ready` | Fetch `RenderNode` slices for a range or child index window |
+| `get-snapshot` | `snapshot-ready` | Retrieve normalized text and per-line `lineEndings` for a `revision` |
+| `schedule-analysis`, `reprioritize-analysis`, `process-analysis-queue`, `cancel-analysis`, `get-analysis-status` | `analysis-state-changed` | Control and inspect budgeted background syntax analysis |
+| `close-document` | `document-closed` | Release document state in the engine |
 
-失败时统一返回 `failure`。`error.code` 可用于区分协议不符、文档已关闭、版本不符、范围无效等情况。`error.recoverable` 描述出错性质，版本冲突还可带期望和实际 revision。上层应先核对文档实例与请求归属，再处理响应。[请求结构](../../crates/editor-protocol/src/request.rs) · [响应结构](../../crates/editor-protocol/src/response.rs)
+Failed requests return a `failure` body with a structured `error.code`, `error.recoverable`, and (on revision conflicts) expected vs. actual revisions.
 
-## 编辑坐标
+## Coordinates & Transactions
 
-所有文本范围都是 LF 归一化文档中的 UTF-16 半开区间 `[from, to)`。例如 `A😀B` 的长度是 4，把 emoji 换成 `好` 的范围是 `[1, 3)`。端点不能切开代理对。`open-document` 接受 LF、CRLF 和 CR，Rust 单独保留各行的原始换行信息。
+- **UTF-16 half-open ranges**: Every range `[from, to)` counts UTF-16 code units in the LF-normalized document (for example, in `A😀B` with length 4, replacing the emoji uses `[1, 3)`). Endpoints must never split a UTF-16 surrogate pair.
+- **Line endings**: `open-document` accepts LF, CRLF, and CR and records per-line endings separately; `edits` inside `apply-transaction` must contain LF-only `insert` strings.
+- **Atomic transactions**: All `edits` in a transaction share one `baseRevision`, are sorted by start offset, and must be non-overlapping. The engine either commits the entire transaction and advances `revision`, or rejects it without mutating document state.
 
-一笔事务中的 `edits` 按起点升序排列、互不重叠，全部以同一 `baseRevision` 为坐标。各次插入的 `insert` 只能包含 LF 换行。事务还可以记录编辑来源、选区和历史意图。Rust 要么接受整笔事务并返回新 revision，要么返回错误。前端收到确认前显示的是当前输入值。
+## Asynchronous Analysis & Viewport Windows
 
-## 异步分析与视口
+Text confirmation is independent of syntax analysis. The Worker returns `transaction-committed` immediately and advances parsing asynchronously across budget slices:
 
-编辑确认和语法解析分开。Worker 可以先返回本次修改的结果，再按预算推进后台分析。`pending` 的 `confirmedRanges` 列出已确认的范围，`complete` 表示当前 revision 的分析已完成。取消或失败也有单独状态。可见区提示能调整分析优先级，文本变更的实际影响范围由引擎计算。
-
-前端按视口请求根块、表格行列、长代码块或引用的局部内容。投影只代表请求的窗口。尚未载入的节点仍属于文档。源码型渲染节点携带源文范围，前端从本地文本取值。应用补丁时要同时检查文档实例、内容版本和投影窗口，滚动前发出的旧请求不能覆盖用户已经到达的新位置。[投影类型](../../crates/editor-protocol/src/projection.rs)
+- `AnalysisState` reports `"pending"` (with `confirmedRanges`), `"complete"`, `"cancelled"`, or `"failed"`.
+- Viewport hints reprioritize pending ranges around what the user is currently viewing.
+- Projections represent only the requested slice; source-backed render nodes carry `sourceRange` so the host slices text directly from its local copy. Both `generation` and `revision` must match before applying a projection patch.

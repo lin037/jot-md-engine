@@ -1,16 +1,23 @@
 ---
-name: 缺陷报告
-about: 报告一个可以复现的编辑、渲染、语法或接入问题
+name: Bug Report
+about: Report a reproducible editing, rendering, syntax, or integration issue
 ---
 
-## 环境
+## Environment
 
-版本或提交、系统、浏览器、编辑模式和相关配置。
+- Package version / commit:
+- OS & Browser:
+- Editor mode (`live-preview` / `split` / `source` / `preview`):
+- Relevant editor options or plugins:
 
-## 最短复现
+## Minimal Reproduction
 
-粘贴可分享的 Markdown。列出键位、光标位置和操作步骤。
+Paste the minimal Markdown snippet and list the steps (cursor position, shortcuts, or IME stage) to reproduce the issue.
 
-## 预期和实际结果
+```markdown
 
-如果有录屏、截图或性能报告，请注明发生问题的那一步。
+```
+
+## Expected vs. Actual Behavior
+
+Describe what you expected to happen and what actually happened. Screenshots, recordings, or console errors are helpful.

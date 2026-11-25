@@ -1,24 +1,31 @@
-# Jot 的 Markdown 方言
+# Markdown Dialect & Extensions
 
-Jot 按自己的规则解析 Markdown。每个普通物理行都是独立的段落，空行也有自己的位置。用 Jot 打开来自其他编辑器的文件时，最容易看到差别的是代码围栏、引用和列表续行。
+**English** · [简体中文](../zh-CN/guides/markdown.md)
 
-## 常用写法
+Jot implements a fast, predictable Markdown dialect designed for line-oriented incremental editing and clean source preservation. Most standard Markdown and GFM constructs work as expected, with a few explicit rules around physical lines, code fences, block quotes, and list continuations.
 
-| 内容 | 写法与边界 |
+## Supported Syntax
+
+| Construct | Syntax & Behavior |
 | --- | --- |
-| 标题 | `# 标题` 到 `###### 标题`。有正文时，在井号后加空格或 Tab。 |
-| 分隔线 | 独立一行写三个或更多相同的 `-`、`*` 或 `_`，标记间可以有空格。 |
-| 行内格式 | `**粗体**`、`*斜体*`、`~~删除线~~`，以及反引号括起的行内代码。代码内保留标记字面值。 |
-| 链接和图片 | `[文字](地址)`、`![说明](地址)`、`<https://example.org>`、`<a@example.org>`。链接地址可包含配对的圆括号。 |
-| 列表和任务 | 无序项可用 `-`、`*`、`+`，有序项可用 `1.`、`1)`。`- [ ]` 和 `- [x]` 是任务项。缩进表示项的位置，有序项保留源码中写下的序号。 |
-| 公式 | 行内用 `$x+y$` 或 `\(x+y\)`，起止符在同一物理行。块公式用各自独占一行的 `$$` 与 `$$`，或 `\[` 与 `\]`。独占一行的 `\[x+y\]` 也会排成块公式。 |
-| 表格 | 表头和紧随其后的分隔行列数必须一致。数据行可以少列，多于表头列数的行会结束表格。分隔行每列至少三个 `-`，用 `:---`、`:---:`、`---:` 指定对齐。转义的竖线和行内代码里的竖线可以作为单元格内容。 |
+| Headings | ATX headings `# Title` through `###### Title` (requires space or tab after `#` when text is present). |
+| Thematic breaks | A standalone line with 3 or more matching `-`, `*`, or `_` characters (spaces allowed between markers). |
+| Inline formatting | `**bold**`, `*italic*`, `~~strikethrough~~`, and `` `inline code` `` (delimiters inside code are preserved literally). |
+| Links & images | `[text](url)`, `![alt](url)`, `<https://example.org>`, `<user@example.org>`. Balanced parentheses in URLs are supported. |
+| Lists & tasks | Unordered (`-`, `*`, `+`), ordered (`1.`, `1)`), and task items (`- [ ]`, `- [x]`). Ordered items preserve source numbers. |
+| Math | Inline `$x+y$` or `\(x+y\)` on a single physical line. Block math via standalone `$$` / `$$`, `\[` / `\]`, or single-line `\[x+y\]`. |
+| Tables | GFM pipe tables. Header and delimiter row column counts must match; delimiter columns require at least three `-` (`:---`, `:---:`, `---:`). Escaped or code-wrapped pipes remain cell content. |
+| Raw HTML | Displayed safely as literal text rather than injected as raw DOM HTML. |
 
-原始 HTML 标签按文本显示，例如 `<em>文字</em>` 会保留标签。标题采用井号写法，普通文字下一行单写 `---` 会解析为一个段落和一条分隔线。
+## Key Design Differences
 
-## 代码围栏
+### Physical-Line Paragraphs
 
-反引号围栏使用三个反引号，带语言名时在语言前留一个 ASCII 空格。开头和结尾各占一行。下面的 `rust` 块用裸围栏结束。
+Every normal physical line is parsed as its own paragraph node, and blank lines retain explicit positions in the syntax tree. Setext headings (`---` under text) are intentionally not used—`---` on the following line parses as a paragraph followed by a thematic break.
+
+### Code Fences
+
+By default, backtick fences use three backticks with a single ASCII space before the language name:
 
 ````markdown
 ``` rust
@@ -26,7 +33,7 @@ let count = 3;
 ```
 ````
 
-也可以用 `begin` 和 `end` 显式配对。这种写法方便在代码正文里展示裸围栏。
+To display nested bare fences safely inside a Markdown block, you can pair `begin` and `end`:
 
 ````markdown
 ``` markdown begin
@@ -36,7 +43,7 @@ let count = 3;
 ``` end
 ````
 
-波浪号围栏使用至少三个 `~`。语言名可以紧跟开头，结束行只写波浪号，数量至少与开头相同。较短的围栏和反引号都可以出现在块内。
+Tilde fences (`~~~` or longer) accept an attached language name directly and close with a matching or longer tilde line:
 
 ````markdown
 ~~~~js
@@ -44,34 +51,44 @@ const marker = "~~~";
 ~~~~
 ````
 
-编辑时，在独占一行的起始围栏末尾按 Enter，会补上匹配的结束围栏，光标进入代码第 1 行。波浪号会保留开头的数量，`begin` 会配对 `end`。想手动输入结束围栏，可以用 Shift+Enter 换行。接入方也可以设置 `input.autoCloseCodeFences: false` 来关闭补全。
+#### CommonMark Language Extension
 
-打开已有文档时，如果没有对应的结束行，开头按普通文本显示，后面的标题或段落仍能独立解析。块公式采用相同的闭合原则。
+To allow standard CommonMark attached language names on backtick fences (such as ```` ```ts ```` or ```` ```mermaid ````), enable the built-in extension in `syntaxProfile`:
 
-打开文档时，可以在 `syntaxProfile.enabledExtensions` 加入 `{ id: "commonmark-fence-language", version: "1.0.0" }`。这样，三个反引号后可以紧跟语言名，如 ts 或 mermaid，再用裸围栏结束。该选项只接受紧跟在反引号后的单个语言名，`begin`、`end` 仍需空格。Demo 已启用此选项。Mermaid 是否绘制图表由前端插件单独控制。[围栏解析器](../../crates/editor-engine/src/syntax/block/fenced_code.rs)
+```ts
+syntaxProfile: {
+  id: "default",
+  version: 1,
+  enabledExtensions: [{ id: "commonmark-fence-language", version: "1.0.0" }],
+}
+```
 
-## 引用
+With a single caret at the end of an opening fence, press `Enter` to complete the pair and move inside the block. If the fence is already paired and its first line is empty, the caret moves there. Use `Shift+Enter` for a plain newline, or turn off completion with `input: { autoCloseCodeFences: false }`.
+
+Unclosed opening fences or math blocks remain plain text when loading a document so that subsequent headings and paragraphs parse independently.
+
+### Block Quotes
+
+Every physical line inside a block quote carries its own `>` prefix (a bare `>` denotes an empty line within the quote):
 
 ```markdown
-> 第一层
-> > 第二层
+> Level 1
+> > Level 2
 >
-> 同一个引用中的下一段
-这一行已经离开引用
+> Next paragraph in the same quote
+Outside the quote
 ```
 
-每一物理行都要写引用前缀，单独的 `>` 表示引用内的空行。每层 `>` 前允许零至三个 ASCII 空格，后面允许一个空格或 Tab。`>> 内容` 与 `> > 内容` 都是两层。引用内可以包含标题、列表、表格和闭合的代码块。即时预览把引用内表格显示为源码行，切到双栏可以看到渲染后的表格。
+Up to three leading ASCII spaces are allowed before each `>`, followed by an optional space or tab. Both `>> text` and `> > text` create nested quotes. Headings, lists, tables, and closed code blocks can appear inside quotes (in Live Preview, tables inside quotes stay as source lines; switch to Split or Preview to inspect rendered quoted tables).
 
-## 列表项内换行
+### List Item Continuations
 
-普通回车创建下一项。在即时预览的已确认列表项中按 `Shift+Enter`，编辑器会在行尾补上两个空格、换行，然后把下一行缩进到正文起点。这两行属于同一个列表项。手工编写时，下一物理行必须至少缩进到当前项的正文列。下一行如果自带列表标记，就从那里开始新项。空项按回车可退一级。
-
-下面的 `·` 只用来标明空格位置。实际输入时，第一行末尾和第二行开头各用两个普通空格。
+Pressing `Enter` starts the next list item (or exits the list on an empty item). Pressing `Shift+Enter` inside a confirmed list item in Live Preview inserts two trailing spaces, a newline, and indents the continuation line to the item's content column:
 
 ```text
-- 第一行··
-··仍属于第一项
-- 下一项
+- First line··
+··Still part of item one
+- Second item
 ```
 
-语法测试按特性和编辑过程分组。可以用命令行工具查看自己的文件被解析成了哪些节点，以及每个节点对应的源码范围。[引擎集成测试](../../crates/editor-engine/tests) · [开发与测试](../contributing/development.md)
+*(Dots `·` indicate space positions.)* When authoring manually, indent the continuation line to at least the item's content column; a line starting with another list marker begins a new item.

@@ -1,20 +1,24 @@
-# Jot 文档
+# Jot Documentation
 
-## 使用编辑器
+**English** · [简体中文](zh-CN/README.md)
 
-- [编辑模式、键位、文档大纲与宿主配置](guides/editor.md)
-- [Markdown 方言和输入示例](guides/markdown.md)
-- [定制主题、类名与布局尺寸](guides/theming.md)
+## Using the Editor
 
-## 理解实现
+- [Package Guide (`@jot-md/editor`)](../packages/editor/README.md) — Installation, quick start, plugins, i18n, and API reference
+- [Editor Interaction & Configuration](guides/editor.md) — Modes, shortcuts, search, tables, outline, focus management, and saving
+- [Markdown Dialect & Extensions](guides/markdown.md) — Supported syntax, code fences, block quotes, and list continuations
+- [Theming & Layout Customization](guides/theming.md) — CSS variables, layout metrics, outline styling, and safe overrides
 
-- [从一次按键到 Rust 确认和 DOM 更新](architecture/editing-pipeline.md)
-- [通信协议及修订一致性](architecture/protocol.md)
-- [投影窗口、虚拟布局和滚动](architecture/virtual-layout.md)
-- [已经修过的回归和排查方法](architecture/regressions.md)
+## Architecture & Internals
 
-## 参与开发
+- [Editing Pipeline](architecture/editing-pipeline.md) — From keystroke to Rust/Wasm confirmation and DOM updates
+- [Wire Protocol](architecture/protocol.md) — Main thread, Worker, and Wasm message contracts and revision safety
+- [Virtual Layout & Scrolling](architecture/virtual-layout.md) — Projection windows, height estimation, and scroll compensation
+- [Engineering Invariants & Pitfalls](architecture/regressions.md) — Key constraints across parsing, IME, tables, and virtual scrolling
 
-- [提交问题、PR 和验证结果](../CONTRIBUTING.md)
-- [源码树、测试目录与脚本入口](contributing/development.md)
-- [Rust、TypeScript 和文档的项目约定](contributing/code-style.md)
+## Contributing
+
+- [Contributing Guide](../CONTRIBUTING.md) — Reporting issues and submitting pull requests
+- [Development & Testing](contributing/development.md) — Repository layout, test suites, and debugging tools
+- [Code Style & Checks](contributing/code-style.md) — Coding conventions and CI verification commands
+- [Releasing & Deployment](contributing/releasing.md) — Maintainer guide for npm publishing and Demo deployment

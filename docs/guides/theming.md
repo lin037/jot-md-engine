@@ -1,6 +1,12 @@
-# 定制编辑器样式
+# Theming & Layout Customization
 
-最外层尺寸由宿主决定。先给传给 `MarkdownEditor` 的 `root` 加自己的 class。组件会附加 `.jot-markdown-editor`，主题规则可以限定在当前挂载点内。
+**English** · [简体中文](../zh-CN/guides/theming.md)
+
+Jot supports CSS custom properties for colors and outline styling, plus a synchronized layout API for typography and spacing across Source, Live Preview, Preview, and off-screen height estimation.
+
+## Host Container Setup
+
+Add a custom class to your editor mount element (Jot automatically adds `.jot-markdown-editor`) so all overrides remain scoped:
 
 ```css
 .notes-editor {
@@ -17,53 +23,55 @@
 .notes-editor .jot-table-toolbar__button { border-color: #80a79e; }
 ```
 
-如果父容器用 Flex 或 Grid 分配高度，给容纳编辑器的项保留可计算的高度及 `min-height: 0`。编辑器的内部滚动层按分配到的高度计算视口。把它放进没有高度约束的容器，可能让整页接管滚动，拖动跳转时失去预期的视口锚点。
+> **Important**: Inside Flex or Grid layouts, give the editor container an explicit height and `min-height: 0`. If the container grows unbounded, the outer page takes over scrolling and disables the editor's virtualized scroll viewport.
 
-## 改颜色
+## Colors
 
-可在宿主 CSS 设置变量，或在初始化传 `theme.colors`。运行中用 `await editor.setTheme({ colors: { link: "#086c60" } })`。只写需要更新的项，传 `null` 移除该项的行内值，让宿主 CSS 生效。
+Set `--jot-*` CSS variables on your host element, pass `theme.colors` during construction, or update colors at runtime via `await editor.setTheme({ colors: ... })`. Pass `null` for any property to clear an inline override and fall back to your stylesheet.
 
-| `theme.colors` | 宿主 CSS 变量 |
+| `theme.colors` key | CSS Custom Property |
 | --- | --- |
 | `background` / `text` | `--jot-background` / `--jot-text-color` |
 | `codeBackground` / `muted` / `link` | `--jot-code-background` / `--jot-muted-color` / `--jot-link-color` |
 | `quote` / `quoteBackground` / `quoteBorder` | `--jot-quote-color` / `--jot-quote-background` / `--jot-quote-border` |
 | `searchMatch` / `searchCurrent` / `selection` | `--jot-search-match` / `--jot-search-match-selected` / `--jot-selection-background` |
 
-## 改字体、行高和间距
+## Typography, Line Heights & Spacing
 
-初始化把布局放在 `theme.layout`，运行中用 `setLayoutStyle`。同一配置会进入 Preview 和 Live Preview 的 CSS 与虚拟布局估算。常见值以像素为单位，标题的行高传六项，依次对应 H1 至 H6。文字相关的默认行高会随字号变化，显式指标保留给定值。
+Pass typography and metric overrides via `theme.layout` or `editor.setLayoutStyle(...)`. Jot applies these settings consistently to CSS and to its off-screen layout estimator so virtualized scrolling stays accurate:
 
 ```ts
 await editor.setLayoutStyle({
   fontFamily: "system-ui, sans-serif",
   fontSize: 16,
-  codeBlockWrap: "scroll",
+  codeBlockWrap: "scroll", // or "wrap"
   metrics: {
     paragraphLineHeight: 26,
     blankLineHeight: 26,
     paragraphPaddingX: 8,
-    headingLineHeights: [34, 32, 30, 28, 26, 26],
+    headingLineHeights: [34, 32, 30, 28, 26, 26], // H1..H6 in px
     codeLineHeight: 24,
     blockGap: 0,
   },
 });
 ```
 
-| 部位 | `metrics` 字段 |
+| Area | `metrics` fields |
 | --- | --- |
-| 正文、空行、标题、分隔线 | `paragraphLineHeight`、`paragraphPaddingX`、`blankLineHeight`、`headingLineHeights`、`thematicHeight` |
-| 块与边界 | `blockGap`、`boundaryWidth` |
-| 引用和列表 | `quotePaddingX`、`quotePaddingY`、`quoteMinContentWidth`、`listIndent`、`listMinContentWidth` |
-| 代码和公式 | `codeLineHeight`、`codePaddingY`、`mathLineHeight`、`mathPaddingY` |
-| 表格 | `tableHeaderHeight`、`tableRowHeight`、`tableToolbarHeight`、`tableFrame` |
-| 图片 | `imageFallbackHeight`、`imageMaxHeight` |
+| Text, blanks, headings, rules | `paragraphLineHeight`, `paragraphPaddingX`, `blankLineHeight`, `headingLineHeights`, `thematicHeight` |
+| Blocks & boundaries | `blockGap`, `boundaryWidth` |
+| Quotes & lists | `quotePaddingX`, `quotePaddingY`, `quoteMinContentWidth`, `listIndent`, `listMinContentWidth` |
+| Code & math | `codeLineHeight`, `codePaddingY`, `mathLineHeight`, `mathPaddingY` |
+| Tables | `tableHeaderHeight`, `tableRowHeight`, `tableToolbarHeight`, `tableFrame` |
+| Images | `imageFallbackHeight`, `imageMaxHeight` |
 
-外部字体加载完或宿主布局发生变化后，可调用 `await editor.invalidateLayout()` 重新读取并估算。需要指定固定行高、间距或换行方式时仍从布局 API 设置。要在加载前稳定预留媒体尺寸，可用 `surface.resolveImageMetadata` 提供图片的宽高或宽高比。调整表格列宽用 `setTableColumnWidth(tableId, column, width)`。实际选项见下列类型。[主题类型](../../packages/editor/src/component/theme.ts) · [布局类型](../../packages/editor/src/layout/pretext/options.ts) · [几何指标](../../packages/editor/src/layout/pretext/filter.ts)
+- Call `await editor.invalidateLayout()` after loading custom web fonts or resizing host layouts externally.
+- Provide image dimensions or aspect ratios ahead of load via `surface.resolveImageMetadata` to prevent scroll shifts.
+- Full TypeScript definitions are in [theme.ts](../../packages/editor/src/component/theme.ts) and [options.ts](../../packages/editor/src/layout/pretext/options.ts).
 
-## 文档大纲样式
+## Document Outline Styling
 
-给大纲容器添加自己的 class，例如 `.notes-outline`。大纲继承容器的字体和文字颜色，折叠箭头随字号缩放。
+Attach your own class to the outline container (for example `.notes-outline`). The outline inherits `font` and `color` from its container and exposes the following CSS variables:
 
 ```css
 .notes-outline {
@@ -76,26 +84,18 @@ await editor.setLayoutStyle({
 }
 ```
 
-前两个变量控制大纲的最大高度和每级缩进。`--jot-outline-accent` 设置当前章节的文字颜色，`--jot-outline-highlight` 设置当前章节和悬停项的背景色。调整行高可在挂载大纲时传入 `{ rowHeight: 36 }`。[大纲接入](../../packages/editor/README.md#文档大纲)
+Pass `{ rowHeight: 36 }` to `mountOutline` or `createOutlinePlugin` to customize row height.
 
-## 可用于视觉修饰的类名
+## Selectors & Layout Guardrails
 
-| 用途 | 选择器 |
+| Element | CSS Selector |
 | --- | --- |
-| 编辑器外壳 | `.jot-markdown-editor`，建议再加宿主自己的 class |
-| 语义块 | `.jot-md-paragraph`、`.jot-md-heading`、`.jot-md-list-item`、`.jot-md-block-quote`、`.jot-md-fenced-code` |
-| 富内容 | `.jot-md-image`、`.jot-md-inline-math`、`.jot-md-math-block`、`.jot-md-table` |
-| 即时预览行内修饰 | `.jot-live-preview-strong`、`.jot-live-preview-emphasis`、`.jot-live-preview-link`；源码显示时有对应的 `jot-live-preview-source-*` 类 |
-| 代码内容行 | `.jot-code-line[data-jot-line-number]`，编号从正文起算，不含围栏 |
-| 表格控件及内容 | `.jot-table-toolbar`、`.jot-table-toolbar__button`、`.jot-table-row`、`.jot-table-cell` |
+| Editor root | `.jot-markdown-editor` |
+| Block elements | `.jot-md-paragraph`, `.jot-md-heading`, `.jot-md-list-item`, `.jot-md-block-quote`, `.jot-md-fenced-code` |
+| Rich content | `.jot-md-image`, `.jot-md-inline-math`, `.jot-md-math-block`, `.jot-md-table` |
+| Live Preview inline marks | `.jot-live-preview-strong`, `.jot-live-preview-emphasis`, `.jot-live-preview-link` (and `jot-live-preview-source-*` when active) |
+| Numbered code lines | `.jot-code-line[data-jot-line-number]` |
+| Table UI | `.jot-table-toolbar`, `.jot-table-toolbar__button`, `.jot-table-row`, `.jot-table-cell` |
+| Toolbar | `.jot-editor-toolbar`, `.jot-editor-toolbar__button` |
 
-类会随组件和模式出现，使用它们时限定在自己的挂载点，下列几何属性走组件 API。
-
-| 保持组件管理的属性 | 直接覆盖后会发生什么 |
-| --- | --- |
-| `.cm-line`、语义块和代码行的 `margin`、`padding`、`line-height`、`white-space` | 离屏高度和实际行盒不同，滚到可见区再测量时可能跳动。空行、列表续行和围栏的差异会放大。宿主全局的 `p`、`pre`、`blockquote` 样式也要限定作用域。 |
-| 虚拟行、占位元素的 `height`、`display`、`position`、`transform` | 滚动索引与真实盒子位置错开，表现为无内容间隙、点击偏移或跳转落点错误。内部滚动层的 `overflow` 也需要由组件管理。 |
-| 表格单元格和网格的 `min-width`、列宽和工具条尺寸 | 表头和正文按同一列轴放置。CSS 额外撑宽会留下空白或错列，改列宽走表格 API。 |
-| 图片元素的固定宽高与代码的独立换行规则 | 真实盒子与未挂载时的估算会采用不同尺寸。图片用尺寸元数据及布局指标，代码使用 `codeBlockWrap`。 |
-
-验证自定义主题时，来回切换 Source、Live Preview 和 Preview，编辑一个空行、长代码行和表格，再滚出视口后返回。关注光标位置、代码行高和表头列对齐。[浏览器几何用例](../../scripts/browser/layout/editor-metric-guard-browser.mjs) · [已修复的样式回归](../architecture/regressions.md)
+Always scope overrides to your mount class and **avoid overriding geometric CSS properties directly** (`margin`, `padding`, `line-height`, `white-space` on `.cm-line` or blocks; `height`/`position`/`transform` on virtual spacers; `min-width` on table cells; or `overflow` on internal scrollers). Use `setLayoutStyle()`, `setTableColumnWidth()`, and `codeBlockWrap` so DOM rendering and off-screen height estimation stay in sync.

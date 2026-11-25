@@ -1,21 +1,24 @@
-# 原位编辑
+# Live Preview Host (`hosts/live-preview`)
 
-`LivePreviewController` 根据 CodeMirror 的文档、选区和可视区域调度投影。`planner.ts` 使用 Rust 返回的 `RenderNode` 生成装饰计划，`widget.ts` 再把需要预览的块交给共用的 `RenderRuntime`。CodeMirror 保管可编辑的文本和撤销历史。
+**English** · [简体中文](README.zh-CN.md)
 
-## 源码和选区
+`LivePreviewController` coordinates CodeMirror 6 state, selections, and visible ranges to schedule projections from the Worker. `planner.ts` turns confirmed `RenderNode` trees into CodeMirror decoration plans, and `widget.ts` delegates rich block widgets to the shared `RenderRuntime`, while CodeMirror remains the single owner of editable text and undo history.
 
-普通块的光标进入后显示源码，离开后恢复预览。跨块选区和全选可以直接保留在预览上，长文档不会因为全选而同时展开每一块。普通代码与引用继续使用 CodeMirror 的物理行。代码、公式的起止标记另有保护，光标从正文首行向上时可以进入起始标记行。
+## Source Reveal & Selection
 
-节点的 `data-jot-source-from/to` 记录源码范围。点击正文时从 DOM 文本锚点换算到范围内的 UTF-16 偏移，无法定位到具体字符时取范围起点。按钮、链接、可拖动的列边界和带 `data-jot-interaction` 的单元格各自处理交互。
+- Placing the caret inside a normal block reveals its raw Markdown syntax; moving out restores the rendered view.
+- Multi-block selections and Select All work directly over the rendered view without forcing an entire large document to expand at once.
+- Opening and closing delimiters for fenced code and math blocks carry guarded boundaries; pressing Arrow Up from the first content line moves cleanly into the opening delimiter line.
+- Elements carry `data-jot-source-from` and `data-jot-source-to` attributes so pointer clicks map accurately to UTF-16 source offsets.
 
-## 表格和输入法
+## Tables & IME Composition
 
-一张表格只挂载一个根 widget。单元格的编辑范围和分隔线的保护范围来自当前版本的行列投影。点击单元格会更新真实的 CodeMirror 选区，表格据此绘制光标。输入法组合期间由宿主的一处临时输入区接收候选文本，提交后形成一次编辑事务。
+- Each table mounts a single root widget whose interactive cell and delimiter ranges come from the confirmed projection.
+- Clicking a cell updates the underlying CodeMirror selection, which `TableGrid` reflects visually. During active IME composition, a single host-level transient surface captures composition text before committing an atomic transaction.
+- Deleting across an entire table is allowed; partial edits that cross table delimiters are intercepted to preserve Markdown structure.
 
-普通编辑局限在单元格内。增删行列通过表格命令执行。选区完整覆盖表格时允许整表删除或替换，跨过部分分隔符时由编辑规则拦截。
+## Revision & Measurement Safety
 
-## 文档版本和测量
+During rapid input or paste bursts, CodeMirror may advance ahead of Worker confirmation. Untouched widgets remain mounted while position-sensitive table actions pause until revisions catch up, and out-of-date projection patches are discarded automatically.
 
-连续粘贴时，CodeMirror 可能比 Rust 先收到下一次编辑。未被改动的 widget 可以暂时留在屏幕上，在版本追平前暂停依赖旧位置的表格交互。后台返回的投影必须仍与当前版本及当前视图匹配，才能应用。
-
-`SyntaxBlockIndex` 用于查找可视区域的根节点，`ProjectionStore` 只读取相应窗口。PreText 为离屏块估算高度，实际挂载的图片、公式和表格通过 `ResizeObserver` 通知 CodeMirror 重新测量。新字体、行高和代码换行规则也会影响离屏高度，应与布局参数一起更新。
+`SyntaxBlockIndex` resolves visible root blocks, `ProjectionStore` fetches only the needed windows, `layout/pretext` estimates off-screen block heights, and `ResizeObserver` triggers CodeMirror re-measurement once widgets settle in the DOM.

@@ -1,6 +1,12 @@
 # @jot-md/editor-protocol
 
-这个包定义 Jot 编辑器主线程、Worker 和 Rust/Wasm 引擎之间的消息类型，以及双方共用的请求编号范围。当前通信协议版本是 **1**。
+**English** · [简体中文](README.zh-CN.md)
+
+Internal workspace package defining TypeScript wire types and protocol constants shared between the Jot main-thread adapter, Web Worker runtime, and Rust/Wasm engine (`crates/editor-protocol`). Current protocol version: **1**.
+
+> **Looking for the editor package?** Install [`@jot-md/editor`](../editor/README.md), which already bundles this protocol internally. This package is private to the monorepo and only needed when developing from source or implementing custom protocol endpoints.
+
+## Example
 
 ```ts
 import { PROTOCOL_VERSION, type RequestEnvelope } from "@jot-md/editor-protocol";
@@ -13,9 +19,11 @@ const request: RequestEnvelope = {
 };
 ```
 
-- 文本范围使用全局 UTF-16 码元偏移，包含起点，不含终点。
-- `generation` 区分文档会话，`revision` 标识引擎已确认的文本版本。`DocumentTransaction` 携带编辑范围、替换文本、选区和历史操作意图。
-- `AnalysisState` 表示解析进度、已确认范围或失败原因。`RenderPatch` 按请求的窗口返回 `RenderNode`。内容可以直接引用当前版本的源码，子节点也可以延后加载。
-- 表格列的内容统计随节点属性传输。列宽、字体、滚动位置和 DOM 测量由浏览器维护。
+## Protocol Conventions
 
-使用现成的浏览器组件请安装 `@lin037/jot-md-engine`。直接实现消息端点时，前端请求编号使用 `0x00000000` 到 `0x7fffffff`，Worker 后台请求使用 `0x80000000` 到 `0xffffffff`。
+- **Coordinates**: All text ranges use half-open `[from, to)` UTF-16 code-unit offsets in the LF-normalized document.
+- **Sessions & Revisions**: `generation` distinguishes document lifecycles; `revision` identifies a committed text state in the engine. `DocumentTransaction` carries edits, selection, and history intent.
+- **Incremental Analysis & Projections**: `AnalysisState` reports background parsing progress, confirmed ranges, or failures. `RenderPatch` delivers `RenderNode` windows for the requested viewport or child slice.
+- **Request ID Partitioning**: Main-thread requests use `0x00000000`–`0x7fffffff`; Worker background requests use `0x80000000`–`0xffffffff`.
+
+For full wire format details, see [Wire Protocol](../../docs/architecture/protocol.md).

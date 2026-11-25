@@ -1,17 +1,21 @@
 # editor-protocol
 
-编辑器的 Rust 通信类型。前端、Worker 和 Wasm 宿主使用同一套请求和响应，握手和消息信封的协议版本均为 1。源码位置以 UTF-16 代码单元计数，范围使用左闭右开的 `[from, to)`。
+**English** · [简体中文](README.zh-CN.md)
 
-| 文件 | 内容 |
+Rust wire types for Jot Protocol **v1**, shared across the native engine, Wasm host, Web Worker, and TypeScript client. Text offsets use UTF-16 code units with half-open `[from, to)` ranges.
+
+## Modules
+
+| Path | Contents |
 | --- | --- |
-| `src/request.rs`、`src/response.rs` | 消息信封和命令，包括握手、打开文档、提交事务、投影、快照和分析。 |
-| `src/common.rs`、`src/error.rs` | 协议版本、请求 ID 范围、文档标识、修订号、语法配置和错误码。 |
-| `src/transaction.rs` | 文本替换、选区、换行策略和编辑意图。 |
-| `src/analysis.rs` | 分析预算、优先范围、进度和取消原因。 |
-| `src/projection.rs`、`src/diagnostic.rs` | 窗口请求、渲染节点、文档补丁和诊断数据结构。 |
-| `tests/wire_shape.rs` | 检查序列化后的字段名、消息标签、可选字段和协议版本。 |
+| `src/request.rs`, `src/response.rs` | Message envelopes and commands (handshake, open, transact, project, snapshot, analysis) |
+| `src/common.rs`, `src/error.rs` | Protocol version, request ID ranges, document/revision IDs, syntax profiles, error codes |
+| `src/transaction.rs` | Text edits, selections, EOL policies, and edit intents |
+| `src/analysis.rs` | Analysis budgets, viewport priority ranges, progress, and cancellation |
+| `src/projection.rs`, `src/diagnostic.rs` | Window queries, render nodes, patches, and diagnostic payloads |
+| `tests/wire_shape.rs` | Serde field-name, enum-tag, and protocol-version contract tests |
 
-修改消息字段时需同时核对 TypeScript 类型。源码仓库的 `packages/editor-protocol/` 保存 TypeScript 类型，`docs/architecture/protocol.md` 说明两端使用的消息格式。
+When changing any wire field, keep TypeScript definitions in `packages/editor-protocol/` and [Wire Protocol](../../docs/architecture/protocol.md) in sync.
 
 ```sh
 cargo test -p editor-protocol

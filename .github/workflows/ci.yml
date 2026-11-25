@@ -35,7 +35,9 @@ jobs:
             git diff --name-only --no-renames -z "$BASE_SHA" HEAD > "$RUNNER_TEMP/jot-changes"
             while IFS= read -r -d '' path; do
               case "$path" in
-                README.md|CONTRIBUTING.md|docs/*|apps/demo/README.md|benchmarks/README.md|packages/editor/README.md|packages/editor-protocol/README.md) ;;
+                README.md|README.zh-CN.md|CONTRIBUTING.md|CONTRIBUTING.zh-CN.md|docs/*|\
+                .github/ISSUE_TEMPLATE/*.md|.github/pull_request_template.md|\
+                apps/*/README*.md|benchmarks/README*.md|crates/*/README*.md|packages/*/README*.md) ;;
                 *) docs_only=false; break ;;
               esac
             done < "$RUNNER_TEMP/jot-changes"

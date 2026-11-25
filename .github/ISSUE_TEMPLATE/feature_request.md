@@ -1,12 +1,12 @@
 ---
-name: 功能建议
-about: 说明一个现有工作流中遇到的实际问题
+name: Feature Request
+about: Propose an improvement or describe a workflow gap
 ---
 
-## 使用场景
+## Use Case
 
-要完成什么操作？目前卡在哪一步？
+What workflow or task are you trying to accomplish, and what is currently blocking you?
 
-## 建议的行为
+## Proposed Behavior
 
-如涉及语法、协议或快捷键，给出最小例子，并说明会影响哪些模式。
+Describe the expected API, syntax, shortcut, or UI behavior with a minimal example. Note which editor modes or integrations would be affected.

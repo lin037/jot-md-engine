@@ -1,46 +1,43 @@
-# 浏览器性能基准
+# Browser Benchmarks
 
-用生产构建运行实际 Live Preview 组件、CodeMirror 和 Rust/Wasm Worker。每次样本使用新编辑器和 Worker，同一轮复用 Chrome 进程及已加载的资源。用项目当前的默认组件配置，样本不用联网加载图片或插件。
+**English** · [简体中文](README.zh-CN.md)
+
+Production browser benchmark suite measuring real `MarkdownEditor` Live Preview, CodeMirror 6, and Rust/Wasm Web Worker performance in headless Chromium. Each sample creates a fresh editor and Worker instance with offline synthetic payloads.
+
+## Running Benchmarks
+
+From the repository root:
 
 ```sh
+# Full default suite (~1 MiB mixed Markdown, 1 warmup + 5 measured samples)
 pnpm run benchmark
-pnpm run benchmark --no-build --scenario cursor-insert --bytes 4194304 --samples 3 --output dist/benchmark-reports/cursor-8m.json
+
+# Custom payload size, scenario, and output path (skipping rebuild)
+pnpm run benchmark --no-build --scenario cursor-insert --bytes 4194304 --samples 3 --output dist/benchmark-reports/cursor-4m.json
+
+# Quick smoke run
 pnpm run benchmark --no-build --bytes 65536 --samples 1 --output dist/benchmark-reports/smoke.json
 ```
 
-默认以约 1 MiB 的混合 Markdown 连续测 5 次，每个场景先预热 1 次。生成器以完整段落为单位，JSON 记录实际 UTF-8 字节数、UTF-16 长度和 SHA-256。需要指定 Chrome 时设置 `CHROME_BIN`。输出默认写到 `dist/benchmark-reports/browser.json`，包含原始样本、中位数、最大值、浏览器、视口和所用 Wasm 的哈希。
+Set `CHROME_BIN` to point to a specific Chrome/Chromium executable. Reports are written to `dist/benchmark-reports/browser.json` by default and include raw samples, median/max timings, browser metadata, and the Wasm binary hash.
 
-| 场景 | 做了什么 |
+## Scenarios
+
+| Scenario | What It Measures |
 | --- | --- |
-| 打开 | 将样本作为初始文档，计时从创建编辑器开始。 |
-| 单字输入 | 原有 1 MiB 文档已经就绪，使用浏览器输入一个汉字。 |
-| 滚动 | 在已有文档上发真实滚轮事件，核对滚动位置、源码视口的移动和新区域的可见内容。 |
-| 一次输入 | 向空编辑器发送一次可信 `Input.insertText`，核对整份事件载荷。 |
-| 粘贴路径 | 在页面内构造包含完整样本的 `ClipboardEvent`，实际经过组件和 CodeMirror 的 paste 处理。它代表粘贴处理逻辑，耗时不含系统剪贴板。 |
-| 在已有文档开头插入 | 在已经解析完的 1 MiB 文档前插入另一份约 1 MiB 的文本，原文保留。沿用 Demo「插入到光标」的选区替换事务，检查插入区末尾独有的可见标记。 |
-| 拖放 | 通过 CDP 发真实浏览器拖放序列，核对 drop 事件中的完整文本。 |
+| **Open** | Creates the editor with the initial ~1 MiB document and measures from editor creation. |
+| **Single character insert** | Types one character into an already-open, fully parsed ~1 MiB document. |
+| **Scroll** | Dispatches real mouse wheel events on an open document and verifies viewport scroll and newly mounted content. |
+| **Bulk insert** | Sends a single trusted `Input.insertText` payload into an empty editor. |
+| **Paste** | Dispatches a synthetic `ClipboardEvent` containing the full payload through CodeMirror's paste pipeline (excluding OS clipboard overhead). |
+| **Prepend (cursor insert)** | Prepends a second ~1 MiB payload at the start of an already-parsed ~1 MiB document and simulates an immediate `input.settled()` + `confirmedValue` save round-trip. |
+| **Drag & drop** | Dispatches a browser drag-and-drop sequence via CDP with the full payload. |
 
-「看到变化」对应报告中的 `visibleMs`。样本文字须在屏幕内连续两帧可见，取第一帧的观察时间。「正文可以保存」和「全文解析完成」分别对应 `confirmedMs` 和 `parsedMs`，按页面收到相应状态的时间计算，包含 Worker 调度、传输和前端处理。「可保存后到解析完」对应 `afterConfirmMs`，只计两次通知之间的时间，两项结果一起返回时记为 0。
+## Metrics & Validation
 
-打开文档从创建编辑器开始计时，滚动从滚轮事件到达编辑区开始计时。输入、粘贴和拖放从事件送达编辑器开始计时，光标插入从调用编辑事务开始计时。自动化命令往返单独记录为 `commandMs`。[编辑器架构图](../README.md#编辑器架构)
+- `visibleMs` (**Time to Visible Frame**): Elapsed time until target content renders across two consecutive animation frames (measured from the first observed frame).
+- `confirmedMs` (**Time to Confirmed Text**): Elapsed time until the Rust/Wasm Worker commits the revision and `editor.confirmedValue` is ready to persist.
+- `parsedMs` (**Full-Document Parse Complete**): Elapsed time until background incremental syntax analysis completes for the entire document.
+- `afterConfirmMs`: Delta between `confirmedMs` and `parsedMs` (`0` when both resolve together).
 
-每次都逐字比对编辑区全文、组件的已确认正文和预期结果。光标插入还模拟插入后立即保存。宿主等待 `editor.input.settled()` 并取出 Markdown，同时在确认回调中独立取一次正文。计时结束后比对这两个值和 Rust `get-snapshot` 全文，再把保存操作取出的那一版写入浏览器文件，关闭并读回。报告中的耗时不含快照传输或文件读写。
-
-每个样本都要求最终文本正确、视口存在且挂载行数少于 500，页面在 15 秒内完成相应步骤。这些是用例的有效性检查。报告中的耗时是这台机器的实测值，可在同等设备、Chrome 版本、构建与样本设置下重跑比较。
-
-[最近一轮实测](../README.md#浏览器基准)
-
-另用 Demo 自带的混合示例做过一次对照。生产页面、JavaScript 和 1,049,302 字节的初始文本相同，只替换 Rust/Wasm 里的后缀查找实现。在文首再次点「插入到光标」，用页面时钟记录新修订的正文确认和语法完成回包。两种实现各预热一次，表中每格按顺序列出随后两次测量的毫秒数。这个示例的内容与默认基准样本不同。
-
-| 后缀查找 | 正文可以保存 | 可保存后到解析完 | 全文解析完成 |
-| --- | ---: | ---: | ---: |
-| 每个新块顺序扫描旧后缀 | 90.8 / 94.7 | 6,594.1 / 6,761.1 | 6,684.9 / 6,855.8 |
-| 按旧块的源码起点二分定位 | 130.1 / 91.7 | 75.9 / 122.6 | 206.0 / 214.3 |
-
-在同一台 Apple M3 上，把单份大小提高到 4 MiB，插入后总量约 8 MiB。预热 1 次、测量 3 次后，可见帧、正文确认、确认后解析的中位数分别为 60.4、356.0 和 506.4 ms。从插入到完整语法就绪的中位数为 849.6 ms，最大值为 873.3 ms。三次都通过了全文和文件读回检查。
-
-## 单行文本与原生对照
-
-输入形状也会影响自动化命令。另测一条 1,048,576 字节的物理行时，CDP 发起 `insertText` 后约 16.2 秒才观察到可信 `beforeinput`。事件送达 Jot 后约 231 ms 完成确认和解析，全文一致，且能继续编辑。同一单行通过页面构造的粘贴事件约 243 ms 完成。可用开发指南里的单行诊断复测这两条路径。[长单行诊断入口](../docs/contributing/development.md#单独运行诊断)
-
-原生 `contenteditable` 和纯 CodeMirror 对照确认收到了同一份混合文档。两组的 CDP `Input.insertText` 均超过诊断脚本的 30 秒限时，报告没有读到最终文本。[对照脚本](../scripts/browser/diagnostics/editor-large-input-control.mjs)
+Every sample checks the visible viewport and compares the editor text and `confirmedValue` with the expected result. The prepend scenario also checks a Rust snapshot and reads back the saved file. See [Benchmark Results](../README.md#browser-benchmarks).

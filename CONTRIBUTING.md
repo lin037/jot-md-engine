@@ -1,23 +1,35 @@
-# 参与 Jot 开发
+# Contributing to Jot
 
-先按[首页](README.md)启动 Demo。修语法从 Rust 侧重现，修输入、选区、光标和滚动从浏览器侧重现。[目录和测试入口](docs/contributing/development.md)
+**English** · [简体中文](CONTRIBUTING.zh-CN.md)
 
-## 提交问题
+Thank you for your interest in contributing to Jot! Whether you are reporting a bug, proposing a feature, improving documentation, or submitting a fix, this guide helps you get started smoothly.
 
-附最短能重现的 Markdown、编辑模式、操作步骤、预期与实际结果、浏览器及系统。涉及快捷键写出实际按键组合，涉及输入法写出候选、确认或取消的阶段。卡顿或抖动可以附录屏，标出发生在哪一步，用纯文本提供相关样例。
+## Reporting Issues
 
-提议改变语法、协议、键位或主题接口时，可先开 Issue 说明用例和受影响的调用方。有现成 Issue 时在 PR 描述里链接它。维护者可以根据复现入口和影响范围一起确定验证方式。
+When opening a [Bug Report](.github/ISSUE_TEMPLATE/bug_report.md), please include:
 
-## 提交 PR
+- **Minimal reproduction**: The shortest Markdown snippet that triggers the issue.
+- **Environment**: OS, browser, editor mode (`live-preview`, `split`, `source`, or `preview`), and relevant configuration.
+- **Steps & observations**: Exact actions, keyboard shortcuts, or IME composition stages, along with expected vs. actual behavior.
 
-在 GitHub 上 Fork 仓库，从默认分支新建工作分支，提交并推送到自己的 Fork，再向原仓库的默认分支发起 Pull Request。方案还在讨论时可以先开 Draft PR。维护者提出修改后，继续推送到同一分支即可更新原 PR。
+When proposing changes to Markdown syntax, wire protocol, shortcuts, or theming APIs, please open a [Feature Request](.github/ISSUE_TEMPLATE/feature_request.md) first to align on the design and affected callers.
 
-1. 用一个 PR 处理一个能独立验证的问题。说明现象、原因、改动和受影响的模式。涉及行为、公开 API 或项目命令时更新对应文档。
-2. 修回归优先在现有最接近的测试中加样例。输入、IME、焦点、真实像素位置和滚动需要浏览器断言。报告包含实际命令、结果和未测环境。
-3. 发 PR 前查看 diff。提交可复现的源文件和夹具，排除构建产物、完整浏览器档案和本地调研记录。改动涉及已有回归时在 PR 链接[回归排查](docs/architecture/regressions.md)中相应项。发现新约束时，补一条能让下一位开发者复现的记录。
+## Submitting Pull Requests
 
-建议用可读的变更标题，如“修复空引用首字输入时的行高跳变”。代码位置、格式和注释约定见[编码规范](docs/contributing/code-style.md)。
+1. **Fork and branch**: Fork the repository on GitHub and create a focused feature/fix branch from `main`.
+2. **Develop locally**: Follow the setup instructions in the [README](README.md#building-from-source) and [Development Guide](docs/contributing/development.md).
+   - Reproduce syntax or parser bugs on the Rust side (`crates/editor-engine`).
+   - Reproduce input, selection, IME, or layout bugs in the browser suite (`scripts/browser`).
+3. **Add tests and update docs**:
+   - Add regression coverage in the closest existing Rust, TypeScript, or browser test suite.
+   - Update both English and Chinese documentation when public APIs, behavior, or commands change.
+4. **Verify before opening a PR**: Run the relevant checks locally (see [Code Style & Checks](docs/contributing/code-style.md)). Keep diffs clean—exclude build artifacts (`dist/`, `target/`) and temporary logs.
+5. **Open the PR**: Use a concise, descriptive title and fill out the [PR template](.github/pull_request_template.md). Link any related issue.
 
-PR 会触发 Rust、TypeScript、打包试装和浏览器验证。修改输入、布局、引用或插件时，再运行[对应的浏览器分组](docs/contributing/development.md#浏览器分组如何选)。如果 GitHub 要求批准 Fork 的首次运行，请等待维护者检查变更并放行。
+CI checks every PR. Changes limited to [documentation paths](.github/workflows/ci.yml) skip the build and browser tests. Maintainers merge after checks pass and review comments are resolved, usually by squash merge.
 
-维护者完成审查后，在两项必需检查 `Rust`、`Web and package` 通过且讨论已解决时合并。通常用 Squash merge 将同一 PR 整理成一条提交。分支保护、npm 发布和 Demo 部署见[维护者手册](docs/contributing/releasing.md)。
+## More Resources
+
+- [Development & Testing Guide](docs/contributing/development.md) — Directory map, test suites, and `md-inspect` CLI.
+- [Code Style & Conventions](docs/contributing/code-style.md) — Formatting, lints, and cross-layer checklist.
+- [Releasing & Deployment](docs/contributing/releasing.md) — Maintainer guide for npm releases and Demo deployment.

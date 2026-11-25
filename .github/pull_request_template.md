@@ -1,11 +1,11 @@
-## 改动
+## Summary
 
-说明要解决的问题、改动范围和受影响的模式。关联 Issue（如有）。
+Describe the problem solved, scope of changes, and affected editor modes. Link related issues if applicable.
 
-## 验证
+## Verification
 
-写出实际运行的命令和结果。涉及交互时说明浏览器、系统和复现步骤。
+List the commands executed locally and their results. For UI/interaction changes, note the browser, OS, and manual steps checked.
 
-## 文档与回归
+## Documentation & Compatibility
 
-列出对外行为、配置、协议、命令的变化，以及覆盖相应回归的测试。
+Note any public API, protocol, command, or configuration changes, and confirm corresponding tests and docs have been updated.
