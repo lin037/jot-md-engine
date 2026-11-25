@@ -122,7 +122,8 @@ export async function connectCdp(url) {
 export async function waitForEvaluation(client, expression, timeout) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeout) {
-    if (await client.evaluate(expression)) return;
+    const value = await client.evaluate(expression);
+    if (value) return value;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`timed out waiting for browser expression: ${expression}`);
