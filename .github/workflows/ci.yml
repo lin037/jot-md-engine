@@ -99,7 +99,7 @@ jobs:
         env:
           JOT_DEMO_BROWSER_BASE: /jot-preview/
       - name: Upload Demo for Pages
-        if: matrix.suite == 'demo' && github.event_name == 'push' && github.ref_name == github.event.repository.default_branch && vars.DEPLOY_DEMO == 'true'
+        if: matrix.suite == 'demo' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && vars.DEPLOY_DEMO == 'true'
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
           path: dist/demo
@@ -129,7 +129,7 @@ jobs:
 
   pages:
     name: Deploy Demo
-    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch && vars.DEPLOY_DEMO == 'true'
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && vars.DEPLOY_DEMO == 'true'
     needs: [rust, web_gate]
     runs-on: ubuntu-latest
     timeout-minutes: 10
