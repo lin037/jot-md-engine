@@ -183,7 +183,9 @@ fn body_cells(
 ) -> Option<Vec<Range<usize>>> {
     // An opener is a block boundary even if its language token contains a
     // pipe. Its own rule decides whether it actually has a matching closer.
-    if super::fenced_code::opening_with_profile(line, profile).is_some() {
+    if super::fenced_code::opening_with_profile(line, profile).is_some()
+        || super::math::compact_bracket_body(line).is_some()
+    {
         return None;
     }
     split_cells(line).filter(|cells| cells.len() <= columns)

@@ -10,7 +10,11 @@ mod thematic_break;
 
 pub(crate) use heading::safe_content_offset as heading_safe_content_offset;
 
-use std::{ops::Range, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    ops::Range,
+    sync::Arc,
+};
 
 use super::{CompiledSyntaxProfile, ParseError, SyntaxNode, tree::NodeIdAllocator};
 use crate::{position::utf16_len, text::TextBuffer};
@@ -29,6 +33,12 @@ pub(crate) struct ParsedBlock {
 pub(crate) struct ParsedListItem {
     pub(crate) parsed: ParsedBlock,
     pub(crate) next_line_start: u32,
+}
+
+/// A standalone block marker allows up to three leading spaces and trailing horizontal space.
+fn standalone_marker(line: &str) -> Option<&str> {
+    let content = line.trim_start_matches(' ');
+    (line.len() - content.len() <= 3).then(|| content.trim_end_matches([' ', '\t']))
 }
 
 #[derive(Clone)]
@@ -63,6 +73,7 @@ impl SourceLine {
 }
 
 pub(crate) struct BlockIndex {
+    tilde_closer: HashMap<usize, usize>,
     fenced_bare_closer_after: Vec<u32>,
     fenced_end_closer_after: Vec<u32>,
     math_dollar_closer_after: Vec<u32>,
@@ -79,30 +90,44 @@ impl BlockIndex {
         let mut next_fenced_end_closer = u32::MAX;
         let mut next_math_dollar_closer = u32::MAX;
         let mut next_math_bracket_closer = u32::MAX;
+        let mut tilde_closer = HashMap::new();
+        // Candidate widths decrease from left to right. A nearer, equally long
+        // or longer closer dominates all shorter candidates behind it.
+        let mut tilde_candidates: Vec<(usize, usize)> = Vec::new();
         for index in (0..lines.len()).rev() {
             fenced_bare_closer_after[index] = next_fenced_bare_closer;
             fenced_end_closer_after[index] = next_fenced_end_closer;
             math_dollar_closer_after[index] = next_math_dollar_closer;
             math_bracket_closer_after[index] = next_math_bracket_closer;
-            let line = lines[index].text();
+            let Some(marker) = standalone_marker(lines[index].text()) else {
+                continue;
+            };
             let encoded = u32::try_from(index).unwrap_or(u32::MAX);
-            match fenced_code::closing(line) {
-                Some(fenced_code::Closer::Bare) => next_fenced_bare_closer = encoded,
-                Some(fenced_code::Closer::End) => next_fenced_end_closer = encoded,
-                None => {}
-            }
-            // `$$` is symmetric: for a marker currently being probed, only a
-            // later standalone marker may close it. The parser consumes that
-            // pair atomically, so a trailing odd marker remains ordinary
-            // source instead of owning the rest of the document.
-            if math::opening(line) == Some(super::MathDelimiter::Dollar) {
+            if let Some((width, info)) = fenced_code::tilde_marker(marker) {
+                let count = tilde_candidates.partition_point(|&(_, candidate)| candidate >= width);
+                if count > 0 {
+                    tilde_closer.insert(index, tilde_candidates[count - 1].0);
+                }
+                if info.is_empty() {
+                    tilde_candidates.truncate(
+                        tilde_candidates.partition_point(|&(_, candidate)| candidate > width),
+                    );
+                    tilde_candidates.push((index, width));
+                }
+            } else if marker == "$$" {
                 next_math_dollar_closer = encoded;
-            }
-            if math::is_closing(line, &super::MathDelimiter::Bracket) {
+            } else if marker == "\\]" {
                 next_math_bracket_closer = encoded;
+            } else {
+                match fenced_code::backtick_closer(marker) {
+                    Some(fenced_code::Closer::Bare) => next_fenced_bare_closer = encoded,
+                    Some(fenced_code::Closer::End) => next_fenced_end_closer = encoded,
+                    _ => {}
+                }
             }
         }
         Self {
+            tilde_closer,
             fenced_bare_closer_after,
             fenced_end_closer_after,
             math_dollar_closer_after,
@@ -129,6 +154,9 @@ impl BlockContext<'_> {
 
     fn fenced_closer_index(&self, closer: fenced_code::Closer) -> Option<usize> {
         let closers = match closer {
+            fenced_code::Closer::Tilde(_) => {
+                return self.index.tilde_closer.get(&self.line_index).copied();
+            }
             fenced_code::Closer::Bare => &self.index.fenced_bare_closer_after,
             fenced_code::Closer::End => &self.index.fenced_end_closer_after,
         };
@@ -327,14 +355,30 @@ pub(crate) fn fenced_opener_for_closer_in_range(
     profile: &CompiledSyntaxProfile,
 ) -> Result<Option<u32>, ParseError> {
     let lines = source_lines_from_buffer(text)?;
+    let mut tilde_openers = BTreeMap::<usize, u32>::new();
+    let mut earliest = u32::MAX;
     let mut bare_opener = None;
     let mut end_opener = None;
-    for line in &lines {
-        let intersects = line.start_utf16 <= range.to && range.from <= line.end_utf16;
+    for line in lines.iter().take_while(|line| line.start_utf16 <= range.to) {
+        let intersects = range.from <= line.end_utf16;
         match fenced_code::closing(line.text()) {
+            Some(fenced_code::Closer::Tilde(width)) => {
+                // An opener matched here cannot reach a later edit. This
+                // symmetric marker can itself open a subsequent block.
+                while let Some(entry) = tilde_openers.first_entry() {
+                    if *entry.key() > width {
+                        break;
+                    }
+                    let opener = entry.remove();
+                    if intersects {
+                        earliest = earliest.min(opener);
+                    }
+                }
+                tilde_openers.entry(width).or_insert(line.start_utf16);
+            }
             Some(fenced_code::Closer::Bare) => {
                 if intersects && let Some(opener) = bare_opener {
-                    return Ok(Some(opener));
+                    earliest = earliest.min(opener);
                 }
                 // A bare marker is symmetric. Remember it as a possible
                 // opener as well; a prior scan cannot tell whether an earlier
@@ -343,24 +387,24 @@ pub(crate) fn fenced_opener_for_closer_in_range(
             }
             Some(fenced_code::Closer::End) => {
                 if intersects && let Some(opener) = end_opener {
-                    return Ok(Some(opener));
+                    earliest = earliest.min(opener);
                 }
                 end_opener = None;
             }
             None => {
                 if let Some(opener) = fenced_code::opening_with_profile(line.text(), profile) {
                     match opener.closer {
+                        fenced_code::Closer::Tilde(width) => {
+                            tilde_openers.entry(width).or_insert(line.start_utf16)
+                        }
                         fenced_code::Closer::Bare => bare_opener.get_or_insert(line.start_utf16),
                         fenced_code::Closer::End => end_opener.get_or_insert(line.start_utf16),
                     };
                 }
             }
         }
-        if line.start_utf16 > range.to {
-            break;
-        }
     }
-    Ok(None)
+    Ok((earliest != u32::MAX).then_some(earliest))
 }
 
 pub(crate) fn math_opener_for_closer_in_range(
@@ -429,7 +473,9 @@ pub(crate) fn closes_math_block(line: &str, delimiter: &super::MathDelimiter) ->
 }
 
 pub(crate) fn is_math_block_boundary(line: &str) -> bool {
-    math::opening(line).is_some() || math::is_closing(line, &super::MathDelimiter::Bracket)
+    math::compact_bracket_body(line).is_some()
+        || math::opening(line).is_some()
+        || math::is_closing(line, &super::MathDelimiter::Bracket)
 }
 
 pub(crate) fn parse_table_row(

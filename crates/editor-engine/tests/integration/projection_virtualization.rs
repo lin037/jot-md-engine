@@ -395,6 +395,44 @@ fn empty_list_items_are_structured_and_code_blank_lines_are_projectable() {
 }
 
 #[test]
+fn adjacent_fences_project_one_empty_code_line() {
+    for marker in ["~~~", "```"] {
+        let source = format!("{marker}\n{marker}");
+        let document = EditorDocument::open(
+            DocumentId("empty-fence".into()),
+            &source,
+            Default::default(),
+        )
+        .unwrap();
+        let mut request = ProjectionRequest {
+            revision: Revision(0),
+            view_revision: 0,
+            slices: vec![slice("0", ProjectionAxis::SyntaxChildren, 0, 1, 0)],
+            mode: ProjectionMode::Preview,
+            active_range: None,
+        };
+        let root = document.project(&request).unwrap();
+        let RenderOperation::ReplaceChildren { inserted, .. } = &root.operations[0];
+        assert_eq!(inserted[0].kind, "fenced-code");
+        request.slices = vec![slice(
+            &inserted[0].id,
+            ProjectionAxis::SourceLines,
+            0,
+            10,
+            0,
+        )];
+        let lines = document.project(&request).unwrap();
+        let RenderOperation::ReplaceChildren {
+            total_children,
+            inserted,
+            ..
+        } = &lines.operations[0];
+        assert_eq!((*total_children, inserted.len()), (1, 1));
+        assert_eq!(inserted[0].source_range, TextRange::new(4, 4));
+    }
+}
+
+#[test]
 fn around_range_keeps_a_zero_width_blank_line_at_the_anchor() {
     let source = "first\n\nsecond";
     let document = EditorDocument::open(

@@ -384,7 +384,7 @@ fn parse_destination(inside: &str) -> Option<(String, Option<String>)> {
         let split = inside.find(char::is_whitespace).unwrap_or(inside.len());
         (&inside[..split], inside[split..].trim())
     };
-    if destination.chars().any(char::is_whitespace) {
+    if !inside.starts_with('<') && destination.chars().any(char::is_whitespace) {
         return None;
     }
     let title = if rest.is_empty() {
@@ -402,7 +402,7 @@ fn parse_destination(inside: &str) -> Option<(String, Option<String>)> {
     Some((unescape_punctuation(destination), title))
 }
 
-fn unescape_punctuation(source: &str) -> String {
+pub(super) fn unescape_punctuation(source: &str) -> String {
     let mut result = String::with_capacity(source.len());
     let mut chars = source.chars().peekable();
     while let Some(ch) = chars.next() {
