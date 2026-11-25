@@ -49,6 +49,7 @@ export interface RenderRuntimeOptions {
   readonly resolveSelection?: (tableRange: TextRange) => EditorSelection | undefined;
   readonly renderMath?: DomRenderContext["renderMath"];
   readonly onLink?: DomRenderContext["onLink"];
+  readonly resolveImageSrc?: (destination: string) => string | undefined;
   readonly resolveImageMetadata?: ImageMetadataResolver;
   readonly onError?: (error: unknown) => void;
 }

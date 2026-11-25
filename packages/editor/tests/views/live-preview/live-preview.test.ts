@@ -829,7 +829,8 @@ function quote_keeps_rendered_inline_geometry_outside_the_edited_line(): void {
   };
   for (const forceSource of [false, true]) {
     equal(rendered(3, forceSource), "image,inline-math");
-    equal(rendered(source.indexOf("Image:"), forceSource), "inline-math");
+    equal(rendered(source.indexOf("Image:"), forceSource), "image,inline-math");
+    equal(rendered(imageFrom + 2, forceSource), "inline-math");
     equal(rendered(source.indexOf("Formula:"), forceSource), "image");
   }
   equal(rendered(3, true, true), "");
@@ -1137,7 +1138,12 @@ function active_image_source_keeps_the_last_rendered_geometry(): void {
     selections: [{ from: 2, to: 2 }],
     estimateBlockHeight: () => 729,
   });
-  equal(textActive.widgetCount, 0);
+  equal(textActive.widgetCount, 1);
+  for (const caret of [imageFrom, source.length]) {
+    const edge = planLivePreview({source, nodes: [paragraph], selections: [{from: caret, to: caret}]});
+    includes(edge.decorations, item => item.type === "replace" && item.from === imageFrom &&
+      item.to === source.length && item.widget?.kind === "image" && !item.widget.sourceCompanion);
+  }
 }
 
 function projected_table_caret_uses_nearest_visual_scroll_delta(): void {

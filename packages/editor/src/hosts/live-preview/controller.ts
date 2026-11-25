@@ -58,13 +58,12 @@ import { planLivePreview } from "./planner.js";
 import { resolveSourceRootAt, sourcePresentationRanges } from "./presentation.js";
 import { LivePreviewPreTextEstimator } from "./pretext-estimator.js";
 import { LivePreviewTableImeSurface } from "./table-ime.js";
+import { allowsUnspacedFenceLanguage, confirmedPrefixMarkerRisks, optimisticMarkerRisk,
+  resolveOptimisticEmptyMarkerKind } from "../shared/markdown-markers.js";
 import {
-  confirmedPrefixMarkerRisks,
   emptyContainerFirstInput,
-  optimisticMarkerRisk,
   planEmptyClosedContainerSeparator,
   resolveEmptyClosedContainer,
-  resolveOptimisticEmptyMarkerKind,
 } from "./empty-block-input.js";
 import { canPaintRuntimeSearchRange, LivePreviewSearchHighlights, revealRuntimeSearchRange } from "./search-highlights.js";
 import { sameSearchPattern } from "../shared/search-pattern.js";
@@ -150,6 +149,8 @@ function subtractFoldedBlocks(slice: ProjectionSlice, folds: readonly FoldRange[
 }
 
 export interface LivePreviewControllerOptions extends LivePreviewOptions {
+  readonly onImagePaste?: (event: ClipboardEvent) => boolean;
+  readonly onToggleTask?: (from: number) => boolean;
   readonly session: EditorDocumentSession;
   readonly commands?: EditorCommandRegistry;
   readonly pluginRegistry?: import("../../plugins/registry.js").EditorPluginRegistry;
@@ -394,9 +395,7 @@ export class LivePreviewController {
     }
   };
   constructor(options: LivePreviewControllerOptions) {
-    this.#allowUnspacedFenceLanguage = options.session.adapter.syntaxProfile?.enabledExtensions?.some(
-      extension => extension.id === "commonmark-fence-language" && extension.version === "1.0.0",
-    ) ?? false;
+    this.#allowUnspacedFenceLanguage = allowsUnspacedFenceLanguage(options.session.adapter.syntaxProfile);
     this.#options = options;
     this.#pretext = new LivePreviewPreTextEstimator(this.#options.session, this.#options);
     this.#unsubscribeFold = options.headingFolds?.subscribe(() => {
@@ -413,9 +412,12 @@ export class LivePreviewController {
       onUpdate: (update) => this.#onViewUpdate(update),
       onKeyDown: (view, event) => this.#onKeyDown(view, event),
       onBeforeInput: (view, event) => this.#onBeforeInput(view, event),
+      ...(options.onToggleTask === undefined ? {} : { onToggleTask: options.onToggleTask }),
       onWidgetActivate: (view, from, to) => this.#onWidgetActivate(view, from, to),
       onTransaction: (transaction) => this.#filterTransaction(transaction),
       onComposition: (active, event, view) => {
+        const body = active && event.isTrusted ? this.#emptyCodeBodyAtCloserEnd(view) : undefined;
+        if (body !== undefined) view.dispatch({ selection: { anchor: body }, userEvent: "select.keyboard" });
         if (active && event.isTrusted && this.#pendingBlankMarkers !== undefined) {
           this.#rememberTrustedLocalGesture(view, { type: "key", key: "compositionstart" });
           // If composition begins before the queued selection reconciliation,
@@ -519,6 +521,7 @@ export class LivePreviewController {
       userEvent === "input.engine-sync" ||
       userEvent?.startsWith("input.table.") === true ||
       userEvent === "input.code.quoted-line" ||
+      userEvent === "input.code.extend-fence" ||
       userEvent === "input.quote.delete-empty-line" ||
       userEvent === "input.quote.continue" ||
       userEvent === "input.quote.indent" ||
@@ -650,7 +653,7 @@ export class LivePreviewController {
       if (gesture.type !== "input" || !selection.main.empty || selection.ranges.length !== 1 ||
           view.state.doc.lineAt(selection.main.head).length !== 0 ||
           gesture.data === null || gesture.data === undefined ||
-          !["`", "$", "\\"].includes(gesture.data.slice(0, 1))) return;
+          !["`", "~", "$", "\\"].includes(gesture.data.slice(0, 1))) return;
     }
     this.#clearTrustedLocalGesture();
     const trusted: TrustedLocalGesture = { ...gesture, doc: view.state.doc, selection, at: Date.now() };
@@ -721,7 +724,7 @@ export class LivePreviewController {
             this.#options.session.adapter.analysis?.state !== "complete" ||
             update.startState.doc.toString() !== this.#source ||
             selection.ranges.length !== 1 || !selection.main.empty || line.length !== 0 ||
-            input == null || !["`", "$", "\\"].includes(input.slice(0, 1))) {
+            input == null || !["`", "~", "$", "\\"].includes(input.slice(0, 1))) {
           this.#clearTrustedLocalGesture();
           return;
         }
@@ -774,7 +777,7 @@ export class LivePreviewController {
       openingTo: position - 1,
       closingFrom: position,
       closingTo: candidate.to,
-      kind: kind === "code-bare" || kind === "code-end" ? "fenced-code" : "math-block",
+      kind: kind.startsWith("code-") ? "fenced-code" : "math-block",
     };
   }
 
@@ -884,6 +887,7 @@ export class LivePreviewController {
           }
           : undefined;
       },
+      ...(this.#options.resolveImageSrc === undefined ? {} : { resolveImageSrc: this.#options.resolveImageSrc }),
       ...(this.#options.renderMath === undefined ? {} : { renderMath: this.#options.renderMath }),
       onLink: (url, event) => {
         // The rendered widget is inside the editing surface; Chromium does
@@ -897,6 +901,7 @@ export class LivePreviewController {
       ...(this.#options.onError === undefined ? {} : { onError: this.#options.onError }),
     });
     this.#tableIme = new LivePreviewTableImeSurface(view, {
+      ...(this.#options.onImagePaste === undefined ? {} : { onImagePaste: this.#options.onImagePaste }),
       onBeforeInput: (inputType, data) =>
         this.#dispatchTableSurfaceInput(view, inputType, data),
       onKeyDown: (event) => this.#onTableSurfaceKeyDown(view, event),
@@ -1079,13 +1084,13 @@ export class LivePreviewController {
   }
 
   /** Leave any confirmed root using its source boundary, without node-kind rules. */
-  exitBlock(direction: "before" | "after" = "after"): boolean {
+  #blockExitTarget(direction: "before" | "after") {
     const view = this.#view;
     if (view === undefined || !this.#opened || this.#disposed ||
-        view.state.selection.ranges.length !== 1) return false;
+        view.state.selection.ranges.length !== 1) return undefined;
     const source = sourceSnapshot(view);
     const adapter = this.#options.session.adapter;
-    if (source !== adapter.text.text || this.#enabled && this.#awaitingConfirmation) return false;
+    if (source !== adapter.text.text || this.#enabled && this.#awaitingConfirmation) return undefined;
     const head = view.state.selection.main.head;
     let node: { readonly sourceRange: { readonly from: number; readonly to: number } } | undefined;
     if (this.#enabled) node = resolveSourceRootAt(source, this.#visibleNodes, head);
@@ -1098,11 +1103,22 @@ export class LivePreviewController {
         node = resolveSourceRootAt(source, candidates.filter((block) => !block.dirty), head);
       }
     }
-    if (node === undefined) return false;
+    if (node === undefined) return undefined;
     const target = resolveLivePreviewBlockExit(source, {
       from: Number(node.sourceRange.from), to: Number(node.sourceRange.to),
     }, direction);
-    if (target.insert.length > 0 && view.state.readOnly) return false;
+    if (target.insert.length > 0 && view.state.readOnly) return undefined;
+    return target;
+  }
+
+  canExitBlock(direction: "before" | "after" = "after"): boolean {
+    return this.#blockExitTarget(direction) !== undefined;
+  }
+
+  exitBlock(direction: "before" | "after" = "after"): boolean {
+    const view = this.#view;
+    const target = this.#blockExitTarget(direction);
+    if (!view || !target) return false;
     view.dispatch({
       ...(target.insert.length === 0 ? {} : { changes: { from: target.from, insert: target.insert } }),
       selection: { anchor: target.anchor },
@@ -2255,11 +2271,37 @@ export class LivePreviewController {
     return true;
   }
 
+  // Both ends of the hidden closer paint at the same caret position. Its
+  // source end can still be selected after typing the closer or restoring a
+  // selection. Enter the visible body before the browser starts an edit.
+  #emptyCodeBodyAtCloserEnd(view: EditorView): number | undefined {
+    const { doc, selection } = view.state;
+    if (!this.#enabled || !this.#opened || this.#disposed || this.#searchSourceReveal ||
+        this.#composing || view.state.readOnly || selection.ranges.length !== 1 || !selection.main.empty) return undefined;
+    const head = selection.main.head, line = doc.lineAt(head);
+    if (head !== line.to || line.length < 3 ||
+        !/^ {0,3}(?:`{3}|~{3})/u.test(doc.sliceString(line.from, Math.min(line.to, line.from + 6)))) return undefined;
+    const confirmed = !this.#awaitingConfirmation && this.#sourceIsConfirmed()
+      ? resolveEmptyClosedContainer(this.#visibleNodes, line.from) : undefined;
+    if (confirmed?.kind !== "fenced-code" || confirmed.closing.to !== head) {
+      const pending = this.#pendingEmptyMarker(doc, line.from);
+      if (pending?.kind !== "fenced-code" || pending.closingTo !== head) return undefined;
+    }
+    return line.from;
+  }
+
   #onBeforeInput(view: EditorView, event: InputEvent): boolean {
     if (view.state.readOnly) {
       event.preventDefault();
       return true;
     }
+    const body = event.isTrusted && !event.isComposing && event.inputType.startsWith("insert")
+      ? this.#emptyCodeBodyAtCloserEnd(view) : undefined;
+    // At the raw end of a manually typed tilde closer another tilde extends
+    // the delimiter. A click in the visible row already selects the body.
+    const extendFence = body !== undefined && event.cancelable && event.inputType === "insertText" &&
+      event.data !== null && /^~+$/u.test(event.data) && /^ {0,3}~+$/u.test(view.state.doc.lineAt(body).text);
+    if (body !== undefined && !extendFence) view.dispatch({ selection: { anchor: body }, userEvent: "select.keyboard" });
     if (this.#enabled && this.#opened && !this.#disposed && event.isTrusted &&
         (event.inputType.startsWith("insert") || event.inputType.startsWith("delete"))) {
       const data = event.inputType === "insertFromPaste"
@@ -2273,11 +2315,17 @@ export class LivePreviewController {
       return false;
     }
     const selection = view.state.selection.main;
+    if (extendFence) {
+      event.preventDefault();
+      view.dispatch({ ...view.state.replaceSelection(event.data!), userEvent: "input.code.extend-fence", scrollIntoView: true });
+      return true;
+    }
     if (event.isTrusted && event.cancelable && event.inputType === "insertText" &&
-        event.data !== null && /[\r\n]/u.test(event.data) && selection.empty &&
+        event.data !== null && selection.empty &&
         !/Android/i.test(view.dom.ownerDocument.defaultView?.navigator.userAgent ?? "") &&
-        this.#emptyComposition === undefined && !view.composing && !this.#awaitingConfirmation &&
-        this.#sourceIsConfirmed() && resolveEmptyClosedContainer(this.#visibleNodes, selection.head) !== undefined) {
+        this.#emptyComposition === undefined && !view.composing && (body !== undefined ||
+          /[\r\n]/u.test(event.data) && !this.#awaitingConfirmation && this.#sourceIsConfirmed() &&
+          resolveEmptyClosedContainer(this.#visibleNodes, selection.head) !== undefined)) {
       // Chrome can rebuild a hidden closer's DOM while splitting a physical
       // line, then report a native change that includes the closer itself.
       // The confirmed zero-width body is a precise insertion point: submit

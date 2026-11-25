@@ -1,3 +1,4 @@
+import { editorI18nAt } from "../../core/i18n.js";
 import { Compartment, EditorState, Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, GutterMarker, WidgetType, gutter, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import type { ProjectionSlice, RenderNode } from "@jot-md/editor-protocol";
@@ -205,7 +206,7 @@ export class HeadingFoldController {
     button.dataset["jotFoldId"] = node.id;
     button.setAttribute("aria-expanded", String(!this.#folds.has(node.id)));
     button.setAttribute("aria-busy", String(this.#pending.has(node.id)));
-    button.setAttribute("aria-label", this.#pending.has(node.id) ? "正在确认章节边界，点击取消" : this.#folds.has(node.id) ? "展开章节" : "折叠章节");
+    editorI18nAt(this.#view?.dom ?? element).bind(button, "aria-label", this.#pending.has(node.id) ? "Checking section bounds, click to cancel" : this.#folds.has(node.id) ? "Expand section" : "Fold section");
     if (previous === null) {
       button.addEventListener("pointerdown", keepEditorSelection);
       button.addEventListener("mousedown", keepEditorSelection);
@@ -263,7 +264,7 @@ export class HeadingFoldController {
       const selection = view.state.selection;
       const from = Number(range.from), to = Number(range.to);
       if (selection.ranges.some(item => !item.empty && item.from < to && from < item.to)) {
-        view.dispatch({ effects: EditorView.announce.of("请先结束覆盖正文的选区，再折叠章节") });
+        view.dispatch({ effects: EditorView.announce.of(editorI18nAt(view.dom).t("Clear the overlapping selection before folding this section")) });
         this.#changed();
         return false;
       }
@@ -418,7 +419,7 @@ class FoldPlaceholder extends WidgetType {
     const span = view.dom.ownerDocument.createElement("span");
     span.className = "jot-heading-fold-placeholder";
     span.textContent = " …";
-    span.setAttribute("aria-label", "已折叠的章节");
+    editorI18nAt(view.dom).bind(span, "aria-label", "Folded section");
     span.addEventListener("mousedown", event => event.preventDefault());
     span.addEventListener("click", () => this.owner.unfold(this.id));
     return span;
@@ -439,7 +440,7 @@ class HeadingMarker extends GutterMarker {
     button.dataset["jotFoldId"] = this.id;
     button.setAttribute("aria-expanded", String(!this.folded));
     button.setAttribute("aria-busy", String(this.pending));
-    button.setAttribute("aria-label", this.pending ? "正在确认章节边界，点击取消" : this.folded ? "展开章节" : "折叠章节");
+    editorI18nAt(view.dom).bind(button, "aria-label", this.pending ? "Checking section bounds, click to cancel" : this.folded ? "Expand section" : "Fold section");
     button.addEventListener("pointerdown", keepEditorSelection);
     button.addEventListener("mousedown", keepEditorSelection);
     button.addEventListener("click", event => { event.stopPropagation(); void this.owner.toggle(this.id); });

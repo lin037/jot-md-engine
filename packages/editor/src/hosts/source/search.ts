@@ -1,3 +1,4 @@
+import { editorI18nAt, type EditorI18n } from "../../core/i18n.js";
 import {
   closeSearchPanel as codeMirrorCloseSearchPanel,
   findNext as codeMirrorFindNext,
@@ -152,6 +153,7 @@ export function executeSourceAction(view: EditorView, action: string): boolean |
 class SourceSearchPanel implements Panel {
   readonly dom: HTMLElement;
   readonly #view: EditorView;
+  readonly #i18n: EditorI18n;
   readonly #search: HTMLInputElement;
   readonly #replace: HTMLInputElement;
   readonly #case: HTMLInputElement;
@@ -201,20 +203,21 @@ class SourceSearchPanel implements Panel {
 
   constructor(view: EditorView) {
     this.#view = view;
+    const i18n = this.#i18n = editorI18nAt(view.dom);
     activeSearchPanels.set(view, this);
     const document = view.dom.ownerDocument;
     this.dom = document.createElement("div");
     this.dom.className = "cm-search jot-search-panel";
     this.dom.setAttribute("role", "search");
-    this.dom.setAttribute("aria-label", "搜索与替换");
+    i18n.bind(this.dom, "aria-label", "Find and replace");
     this.dom.addEventListener("focusin", this.#onPanelFocus);
     view.contentDOM.addEventListener("focusin", this.#onEditorFocus);
     const field = (name: SearchTextField, label: string) => {
       const input = document.createElement("input");
       input.name = name;
       input.className = "cm-textfield jot-search-input";
-      input.placeholder = label;
-      input.setAttribute("aria-label", label);
+      i18n.bind(input, "placeholder", label);
+      i18n.bind(input, "aria-label", label);
       input.addEventListener("input", () => {
         if (!this.#composing && this.#composition === undefined) this.#commit({ [name]: input.value });
       });
@@ -240,11 +243,12 @@ class SourceSearchPanel implements Panel {
       element.type = "button";
       element.name = name;
       element.className = "cm-button jot-search-button";
-      element.textContent = icon ?? label;
+      if (icon === undefined) i18n.bind(element, "textContent", label);
+      else element.textContent = icon;
       if (icon !== undefined) {
         element.classList.add("jot-search-button--icon");
-        element.setAttribute("aria-label", label);
-        element.title = label;
+        i18n.bind(element, "aria-label", label);
+        i18n.bind(element, "title", label);
       }
       element.addEventListener("click", () => this.#run(run, name !== "close"));
       return element;
@@ -257,32 +261,34 @@ class SourceSearchPanel implements Panel {
       input.addEventListener("change", () => {
         if (!this.#composing && this.#composition === undefined) this.#commit({ [option]: input.checked }, true);
       });
-      label.append(input, document.createTextNode(text));
+      const caption = document.createElement("span");
+      i18n.bind(caption, "textContent", text);
+      label.append(input, caption);
       options.append(label);
       return input;
     };
     const row = document.createElement("div");
     row.className = "jot-search-row";
-    this.#search = field("search", "搜索");
+    this.#search = field("search", "Search");
     this.#search.setAttribute("main-field", "true");
     row.append(this.#search,
-      button("prev", "上一个", () => findPrevious(view), "↑"),
-      button("next", "下一个", () => findNext(view), "↓"),
-      button("close", "关闭", () => closeSearchPanel(view), "×"));
+      button("prev", "Previous", () => findPrevious(view), "↑"),
+      button("next", "Next", () => findNext(view), "↓"),
+      button("close", "Close", () => closeSearchPanel(view), "×"));
     const options = document.createElement("div");
     options.className = "jot-search-options";
-    this.#case = checkbox("case", "区分大小写", "caseSensitive");
-    this.#word = checkbox("word", "全词", "wholeWord");
-    this.#regexp = checkbox("re", "正则表达式", "regexp");
+    this.#case = checkbox("case", "Match case", "caseSensitive");
+    this.#word = checkbox("word", "Whole word", "wholeWord");
+    this.#regexp = checkbox("re", "Regular expression", "regexp");
     this.#status = document.createElement("span");
     this.#status.className = "jot-search-status";
     this.#status.setAttribute("role", "status");
     options.append(this.#status);
     const replaceRow = document.createElement("div");
     replaceRow.className = "jot-search-row";
-    this.#replace = field("replace", "替换为");
-    const one = button("replace", "替换", () => replaceNext(view));
-    const all = button("replaceAll", "全部替换", () => replaceAll(view));
+    this.#replace = field("replace", "Replace with");
+    const one = button("replace", "Replace", () => replaceNext(view));
+    const all = button("replaceAll", "Replace all", () => replaceAll(view));
     this.#replaceControls.push(this.#replace, one, all);
     replaceRow.append(this.#replace, one, all);
     this.dom.append(row, options, replaceRow);
@@ -366,7 +372,7 @@ class SourceSearchPanel implements Panel {
   #applyValidationState(query: SearchQuery): void {
     const invalid = query.search.length > 0 && !query.valid;
     this.#search.setAttribute("aria-invalid", String(invalid));
-    this.#status.textContent = invalid ? "无效的正则表达式" : "";
+    this.#i18n.bind(this.#status, "textContent", invalid ? "Invalid regular expression" : "");
   }
 
   #dispatchQuery(query: SearchQuery): void {
@@ -460,10 +466,10 @@ class SourceSearchPanel implements Panel {
           !sameSearchPattern(query, getSearchQuery(state)) ||
           state.doc !== start.doc || !state.selection.eq(start.selection)) return;
       if (match === undefined) {
-        this.#status.textContent = "未找到匹配项";
+        this.#i18n.bind(this.#status, "textContent", "No matches");
         return;
       }
-      this.#status.textContent = "";
+      this.#i18n.bind(this.#status, "textContent", "");
       selectSearchMatch(this.#view, match);
     });
   }
@@ -502,8 +508,8 @@ class SourceSearchPanel implements Panel {
       return;
     }
     const found = command();
-    if (!found && getSearchQuery(this.#view.state).valid) this.#status.textContent = "未找到匹配项";
-    else if (found) this.#status.textContent = "";
+    if (!found && getSearchQuery(this.#view.state).valid) this.#i18n.bind(this.#status, "textContent", "No matches");
+    else if (found) this.#i18n.bind(this.#status, "textContent", "");
   }
 }
 

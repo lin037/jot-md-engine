@@ -1,3 +1,4 @@
+import { editorI18nAt } from "../../core/i18n.js";
 import type { RenderNode } from "@jot-md/editor-protocol";
 import { numberAttribute, rangeAttribute } from "../../components/common/dom-renderer.js";
 import { quotePrefix } from "../../components/common/quote-prefix.js";
@@ -97,7 +98,7 @@ export class PluginCodeBlock implements RenderComponent {
     const document = this.#host.ownerDocument;
     const status = document.createElement("div");
     status.className = "jot-plugin-block__status";
-    status.textContent = message;
+    editorI18nAt(this.#runtime.options.root).bind(status, "textContent", message);
     const pre = document.createElement("pre");
     pre.className = "jot-plugin-block__source";
     pre.textContent = source;

@@ -5,6 +5,16 @@ import type {
   TransactionOrigin,
 } from "@jot-md/editor-protocol";
 
+/** A durable Markdown destination supplied by the application. */
+export interface EditorImage {
+  readonly destination: string;
+  readonly alt?: string;
+}
+
+export type SaveEditorImage = (
+  file: File, context: { readonly source: "paste" | "picker"; readonly signal: AbortSignal },
+) => Promise<EditorImage> | EditorImage;
+
 export interface TableInsertionSize {
   /** Number of visible rows, including the header. */
   readonly rows: number;
@@ -18,11 +28,20 @@ export interface TableInsertionSize {
 export interface EditorCommandContext {
   readonly source: string;
   readonly selection: EditorSelection;
+  /** Translate a user-facing command message in the active editor. */
+  readonly phrase?: (message: string) => string;
   /** Rust-confirmed root at the selection head for this exact source snapshot. */
   readonly block?: BlockMetadata | undefined;
+  /** Confirmed owner of a source position, including projected list items inside quotes. */
+  readonly blockAt?: (offset: number) => BlockMetadata | undefined;
+  /** A mounted checkbox can supply its mapped source position while the Worker catches up. */
+  readonly taskMarkerFrom?: number;
   /** CodeMirror 多选数量；未由非 CodeMirror 宿主提供时按单一选区处理。 */
   readonly selectionCount?: number;
   readonly tableSize?: TableInsertionSize;
+  readonly images?: readonly EditorImage[];
+  readonly canPickImage?: boolean;
+  readonly imageSource?: "api" | "paste" | "picker";
 }
 
 /** 一个命令要提交的源码变更与可选的新选区。 */
@@ -33,6 +52,11 @@ export interface EditorCommandResult {
   readonly selection?: EditorSelection;
   readonly origin?: TransactionOrigin;
   /** 写入事务观测流的稳定事件名，例如 input.table.insert-row。 */
+  readonly userEvent: string;
+}
+
+export interface EditorCommandExecution {
+  readonly id: string;
   readonly userEvent: string;
 }
 

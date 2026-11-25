@@ -99,6 +99,7 @@ export interface EditorSurfaceOptions {
   readonly renderMath?: DomRenderContext["renderMath"];
   readonly onLink?: DomRenderContext["onLink"];
   /** 浏览器侧图片元数据；同一份数据同时服务 Preview 和 PreText。 */
+  readonly resolveImageSrc?: (destination: string) => string | undefined;
   readonly resolveImageMetadata?: ImageMetadataResolver;
   /** Preview 表格工具条使用的统一 command 端口；不直接修改 DOM 或源码。 */
   readonly onTableCommand?: TableCommandExecutor;

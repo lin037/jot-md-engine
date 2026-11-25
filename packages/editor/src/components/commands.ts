@@ -34,7 +34,10 @@ export function createDefaultEditorCommandRegistry(
 }
 
 export function defaultEditorShortcuts(mac: boolean) {
-  return [...tableShortcuts, ...formatShortcuts, ...nativeShortcuts].map((shortcut) => {
+  return [...tableShortcuts, ...formatShortcuts, ...nativeShortcuts,
+    { id: "format.task-list", command: "format.task-list", key: "Ctrl-Shift-9" },
+    { id: "task.toggle-checked", command: "task.toggle-checked", key: "Mod-Alt-Enter" },
+  ].map((shortcut) => {
     const key = mac ? macShortcutKeys[shortcut.id] : undefined;
     return key === undefined ? shortcut : { ...shortcut, key };
   });

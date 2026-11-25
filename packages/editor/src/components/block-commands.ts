@@ -1,6 +1,8 @@
 import type { TextEdit, Utf16Offset } from "@jot-md/editor-protocol";
 import { range } from "../adapter/text-model.js";
-import { tableRowCells } from "./table/source.js";
+import { quotePrefix } from "./common/quote-prefix.js";
+import { renumberList, toggleChecked } from "./list-actions.js";
+import { serializeTableCell, tableRowCells } from "./table/source.js";
 import type { EditorCommand, EditorCommandContext, EditorCommandResult } from "../core/commands/index.js";
 
 export const TABLE_INSERTION_LIMITS = { rows: 100, columns: 50 } as const;
@@ -53,15 +55,16 @@ function prefix(context: EditorCommandContext, id: string, marker: string): Edit
   const lines = context.source.slice(from, to).split("\n");
   let offset = from;
   const targets = lines.flatMap((line) => {
-    const indent = /^[\t ]*/u.exec(line)![0].length;
+    const quoted = id === "format.task-list" ? quotePrefix(line, 0, Infinity)?.to ?? 0 : 0;
+    const indent = quoted + /^[\t ]*/u.exec(line.slice(quoted))![0].length;
     const position = offset + indent;
     offset += line.length + 1;
     // A selected separator stays a separator. A single caret on a blank line
     // can still create the requested list/quote marker for subsequent typing.
-    if (start !== end && line.trim().length === 0) return [];
+    if (start !== end && line.slice(quoted).trim().length === 0) return [];
     const text = line.slice(indent);
     const existing = id === "format.task-list"
-      ? /^[-+*][\t ]+\[[ xX]\](?:[\t ]+|$)/u.exec(text)?.[0]
+      ? /^(?:[-+*]|\d{1,9}[.)])[\t ]+\[[ xX\t]\](?:[\t ]+|$)/u.exec(text)?.[0]
       : id === "format.ordered-list"
       ? /^\d+[.)] /u.exec(text)?.[0]
       : text.startsWith(marker) ? marker : undefined;
@@ -97,8 +100,14 @@ export const blockCommands: readonly EditorCommand[] = [
     ["format.task-list", "切换任务列表", "- [ ] "],
     ["format.quote", "切换引用", "> "],
   ] as const).map(([id, title, marker]): EditorCommand => ({
-    id, title, category: "块格式", run: (context) => prefix(context, id, marker),
+    id, title, category: "块格式",
+    ...(id === "format.task-list" ? { description: "将所选行设为待办任务（TODO）或移除任务标记" } : {}),
+    run: (context) => prefix(context, id, marker),
   })),
+  { id: "task.toggle-checked", title: "切换任务完成状态", description: "完成或重新打开当前待办任务（TODO）",
+    category: "列表", run: toggleChecked },
+  { id: "list.renumber", title: "重排有序列表编号", description: "从首项序号开始，为当前层级的连续列表重新编号",
+    category: "列表", run: renumberList },
   { id: "insert.code-block", title: "插入代码块", category: "插入", run: (context) =>
     block(context, "code-block", (selected) => {
       const opening = "``` js begin\n";
@@ -123,15 +132,46 @@ export const blockCommands: readonly EditorCommand[] = [
       return { text, anchor };
     }, true);
   } },
-  { id: "insert.image", title: "插入图片", category: "插入", run: (context) =>
-    block(context, "image", (selected) => {
-      const alt = selected.replace(/\r\n?|\n/gu, " ").replace(/\\/gu, "\\\\").replace(/[\[\]]/gu, "\\$&");
-      const opening = `![${alt}](`;
-      return { text: `${opening}https://)`, anchor: opening.length, head: opening.length + "https://".length };
-    }) },
+  { id: "insert.image", title: "插入图片", category: "插入", run: (context) => {
+    if ((context.selectionCount ?? 1) !== 1) return undefined;
+    const from = Math.min(context.selection.anchor, context.selection.head);
+    const to = Math.max(context.selection.anchor, context.selection.head);
+    if (context.images !== undefined) {
+      if (!context.images.length) return undefined;
+      const references = context.images.map((image) => {
+        if (typeof image.destination !== "string" || !image.destination.trim()) {
+          throw new RangeError(context.phrase?.("Image destination is empty") ?? "图片地址为空");
+        }
+        const alt = image.alt ?? context.source.slice(from, to);
+        // Angle destinations preserve spaces, literal parentheses and signed URLs.
+        if (/[\r\n\0]/u.test(image.destination)) {
+          throw new RangeError(context.phrase?.("Image destination cannot contain a newline or null character") ?? "图片地址不能包含换行符或空字符");
+        }
+        const url = /[\s()<>\\]/u.test(image.destination)
+          ? `<${image.destination.replace(/[<>\\]/gu, "\\$&")}>` : image.destination;
+        return `![${imageAlt(alt)}](${url})`;
+      });
+      // A paste stays inline even inside a list, a quote, or an unprojected cell.
+      // Markdown backslash escapes preserve literal pipes in either rendering context.
+      const markdown = serializeTableCell(references.join(" "), false);
+      const caret = (from + markdown.length) as Utf16Offset;
+      return { edits: [{ range: range(from, to), insert: markdown }], selection: { anchor: caret, head: caret },
+        origin: context.imageSource === "paste" ? "paste" : "api",
+        userEvent: context.imageSource === "paste" ? "input.paste.image" : "input.insert.image" };
+    }
+    if (context.canPickImage) return { action: "image.choose-file", userEvent: "select.image" };
+    const opening = serializeTableCell(`![${imageAlt(context.source.slice(from, to))}](`, false);
+    const anchor = (from + opening.length) as Utf16Offset;
+    return { edits: [{ range: range(from, to), insert: `${opening}https://)` }],
+      selection: { anchor, head: (anchor + "https://".length) as Utf16Offset }, userEvent: "input.insert.image" };
+  } },
   { id: "insert.thematic-break", title: "插入分隔线", category: "插入", run: (context) =>
     block(context, "thematic-break", (_selected, following) => {
       const existing = /^\n*/u.exec(following)![0].length;
       return { text: "---" + "\n".repeat(2 - existing), anchor: 5 };
     }, true) },
 ];
+
+function imageAlt(value: string): string {
+  return value.replace(/\r\n?|\n/gu, " ").replace(/\\/gu, "\\\\").replace(/[\[\]]/gu, "\\$&");
+}

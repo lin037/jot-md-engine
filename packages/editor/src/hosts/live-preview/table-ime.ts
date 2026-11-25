@@ -1,6 +1,8 @@
+import { editorI18nAt } from "../../core/i18n.js";
 import type { EditorView } from "@codemirror/view";
 
 export interface LivePreviewTableInputCallbacks {
+  readonly onImagePaste?: (event: ClipboardEvent) => boolean;
   readonly onBeforeInput: (inputType: string, data: string | undefined) => boolean;
   readonly onKeyDown: (event: KeyboardEvent) => boolean;
   readonly onCompositionCommit: (text: string) => void;
@@ -41,7 +43,7 @@ export class LivePreviewTableImeSurface {
     element.autocomplete = "off";
     element.setAttribute("autocapitalize", "off");
     element.setAttribute("autocorrect", "off");
-    element.setAttribute("aria-label", "Table cell input");
+    editorI18nAt(view.dom).bind(element, "aria-label", "Table cell input");
     element.addEventListener("compositionstart", this.#onCompositionStart);
     element.addEventListener("compositionupdate", this.#onCompositionUpdate);
     element.addEventListener("compositionend", this.#onCompositionEnd);
@@ -209,7 +211,7 @@ export class LivePreviewTableImeSurface {
     event.stopPropagation();
     if (!this.#active || this.#composing) return;
     const text = event.clipboardData?.getData("text/plain") ?? "";
-    this.#callbacks.onBeforeInput("insertFromPaste", text);
+    if (!this.#callbacks.onImagePaste?.(event)) this.#callbacks.onBeforeInput("insertFromPaste", text);
     this.#suppressPasteInput = true;
     event.preventDefault();
     this.#scheduleCleanup();

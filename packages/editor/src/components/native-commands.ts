@@ -19,6 +19,7 @@ const definitions = [
   ["history.redo", "重做", "编辑", "重做上一次撤销", "Mod-Shift-z"],
   ["toolbar.open-heading", "选择标题级别", "工具栏", "打开标题选择器", undefined, false],
   ["toolbar.open-table", "选择表格尺寸", "工具栏", "打开行列选择器", undefined, false],
+  ["toolbar.open-image", "选择图片来源", "工具栏", "打开图片选择器", undefined, false],
   ["toolbar.open-more", "更多格式和插入", "工具栏", "打开扩展工具菜单", undefined, false],
   ["editor.exit-block", "在当前块后继续编辑", "导航", "离开表格、代码、公式等块，在后方段落继续", "Mod-Enter"],
   ["editor.insert-before", "在当前块前继续编辑", "导航", "定位或创建前方段落", "Mod-Shift-Enter"],

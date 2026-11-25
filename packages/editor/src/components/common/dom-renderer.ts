@@ -1,3 +1,4 @@
+import { editorI18nAt, type EditorI18n } from "../../core/i18n.js";
 import type {
   RenderNode,
   RenderValue,
@@ -16,11 +17,13 @@ export interface ImageMetadata {
 export type ImageMetadataResolver = (source: string) => ImageMetadata | undefined;
 
 export interface DomRenderContext {
+  readonly i18n?: EditorI18n;
   readonly document: Document;
   readonly mode: EffectiveRenderMode;
   readonly sourceForRange: (range: TextRange) => string;
   readonly onDeferred: (node: RenderNode, host: HTMLElement) => void;
   readonly mountChild?: (node: RenderNode) => HTMLElement;
+  readonly resolveImageSrc?: (destination: string) => string | undefined;
   readonly resolveImageMetadata?: ImageMetadataResolver;
   readonly renderMath?: (
     latex: string,
@@ -300,7 +303,7 @@ export class RenderNodeTranslator {
         checkbox.className = "jot-task-checkbox";
         checkbox.checked = booleanAttribute(node, "checked") === true;
         checkbox.disabled = true;
-        checkbox.setAttribute("aria-label", "任务状态");
+        (context.i18n ?? editorI18nAt(checkbox)).bind(checkbox, "aria-label", "Task status");
         return checkbox;
       }
       case "inline-code":
@@ -402,7 +405,10 @@ export class RenderNodeTranslator {
   ): void {
     const image = element as HTMLImageElement;
     const destination = stringAttribute(node, "destination");
-    const safe = destination === undefined ? undefined : sanitizeUrl(destination, true);
+    const src = destination === undefined || context.resolveImageSrc === undefined
+      ? destination : context.resolveImageSrc(destination);
+    const localResource = context.resolveImageSrc !== undefined && src && /^(?:file|asset):\/\//iu.test(src);
+    const safe = localResource ? src : src ? sanitizeUrl(src, true) : undefined;
     const metadata = context.resolveImageMetadata?.(destination ?? "") ??
       cachedImageMetadata(context.document, destination ?? "");
     // Reserve geometry before setting src. Reusing a mounted image must not

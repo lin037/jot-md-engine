@@ -1,3 +1,4 @@
+import { editorI18nAt, type EditorI18n } from "../../core/i18n.js";
 import {
   TABLE_COMMAND,
   type TableCommandExecutor,
@@ -6,6 +7,7 @@ import {
 
 export interface TableToolbarOptions {
   readonly document: Document;
+  readonly i18n?: EditorI18n;
   readonly tableId: string;
   readonly resolveAnchor: () => number;
   readonly execute: TableCommandExecutor;
@@ -21,11 +23,12 @@ export function refreshTableToolbar(toolbar: HTMLElement): void { refreshers.get
 
 export function createTableToolbar(options: TableToolbarOptions): HTMLElement {
   const toolbar = options.document.createElement("div");
+  const i18n = options.i18n ?? editorI18nAt(toolbar);
   toolbar.className = "jot-table-toolbar";
   toolbar.dataset["jotTableToolbar"] = "true";
   toolbar.dataset["jotTableId"] = options.tableId;
   toolbar.setAttribute("role", "toolbar");
-  toolbar.setAttribute("aria-label", "表格操作");
+  i18n.bind(toolbar, "aria-label", "Table actions");
 
   const refresh: Array<() => void> = [];
   for (const action of TABLE_TOOLBAR_ACTIONS) {
@@ -33,9 +36,9 @@ export function createTableToolbar(options: TableToolbarOptions): HTMLElement {
     button.type = "button";
     button.className = "jot-table-toolbar__button";
     button.dataset["jotTableCommand"] = action.command;
-    button.textContent = action.label;
-    button.title = action.title;
-    button.setAttribute("aria-label", action.title);
+    i18n.bind(button, "textContent", action.label);
+    i18n.bind(button, "title", action.title);
+    i18n.bind(button, "aria-label", action.title);
     // 保留当前编辑器焦点，避免点击工具条后 command 使用了错误的 selection。
     button.addEventListener("mousedown", (event) => event.preventDefault());
     refresh.push(() => { button.disabled = options.canExecute?.(action.command, options.resolveAnchor()) === false; });

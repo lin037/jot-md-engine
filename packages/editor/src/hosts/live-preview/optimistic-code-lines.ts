@@ -81,7 +81,7 @@ export function resolveOptimisticCodeLines(
     const head = transaction.newDoc.sliceString(line.from, Math.min(line.to, line.from + (quoted?.prefix.length ?? 0) + 256));
     const prefix = quoted === undefined ? undefined : quotePrefix(head, 0, quoted.depth);
     if (quoted !== undefined && prefix?.depth !== quoted.depth) return true;
-    return /^[ \t]{0,3}`{3}/u.test(prefix === undefined ? head : head.slice(prefix.to));
+    return /^[ \t]{0,3}(?:`{3}|~{3})/u.test(prefix === undefined ? head : head.slice(prefix.to));
   };
   if (couldBeFence(firstNew) || couldBeFence(lastNew)) return undefined;
 

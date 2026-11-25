@@ -134,6 +134,7 @@ export interface LivePreviewOptions {
   readonly maxDetailedBlocks?: number;
   readonly renderMath?: DomRenderContext["renderMath"];
   readonly onLink?: DomRenderContext["onLink"];
+  readonly resolveImageSrc?: (destination: string) => string | undefined;
   readonly resolveImageMetadata?: ImageMetadataResolver;
   readonly pretext?: PreTextOptions;
   /**
