@@ -11,6 +11,10 @@ export function createImagePicker(
     file.type = "button";
     file.className = "jot-editor-toolbar__image-file";
     i18n.bind(file, "textContent", "Choose image files…");
+    // WebKit can move focus outside the picker before dispatching click.
+    file.addEventListener("mousedown", event => {
+      if (event.button === 0) event.preventDefault();
+    });
     file.addEventListener("click", pickFiles);
     panel.append(file);
   }

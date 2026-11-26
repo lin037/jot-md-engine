@@ -22,10 +22,10 @@ const katexCss = readFileSync(join(katexDist, "katex.min.css"), "utf8");
 const sysroot = execFileSync("rustc", ["--print", "sysroot"], { encoding: "utf8" }).trim();
 copyFileSync(join(sysroot, "share/doc/rust/COPYRIGHT-library.html"), join(dist, "wasm/COPYRIGHT-library.html"));
 const coreCss = [
-  "/* @lin037/jot-md-engine component styles */",
+  "/* @jot-md/editor component styles */",
   componentStyles.MARKDOWN_EDITOR_CSS.trim(),
   "",
-  "/* @lin037/jot-md-engine surface styles */",
+  "/* @jot-md/editor surface styles */",
   surfaceStyles.EDITOR_SURFACE_CSS.trim(),
   "",
   "/* EditorSurface direct scrollbar styles */",
@@ -71,7 +71,7 @@ for (const file of files) {
 }
 const manifest = {
   schemaVersion: 1,
-  package: "@lin037/jot-md-engine",
+  package: "@jot-md/editor",
   files: files.sort((left, right) => left.path.localeCompare(right.path)),
   totals: {
     bytes: files.reduce((total, file) => total + file.bytes, 0),
