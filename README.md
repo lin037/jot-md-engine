@@ -41,6 +41,10 @@ import { MarkdownEditor } from "@jot-md/editor";
 
 See the [Package Guide](packages/editor/README.md#quick-start-vite--typescript) for a complete Vite example with the Worker and editor mounted together.
 
+[Jotiva](https://github.com/lin037/jotiva), a desktop Markdown editor, uses this component. See its [editor setup](https://github.com/lin037/jotiva/blob/main/src/editor/note-editor.ts) for an example from a full application.
+
+[![Jotiva on macOS showing editor themes and a window note](docs/assets/jotiva-macos-themes.webp)](https://github.com/lin037/jotiva)
+
 ## Architecture Overview
 
 Jot separates immediate user interaction from document parsing and virtualized layout:

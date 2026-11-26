@@ -41,6 +41,10 @@ import { MarkdownEditor } from "@jot-md/editor";
 
 [组件接入指南](docs/zh-CN/guides/package.md#快速开始vite--typescript)里有完整的 Vite 示例，从创建 Worker 到挂载编辑器都可以照着做。
 
+桌面 Markdown 编辑器 [Jotiva](https://github.com/lin037/jotiva) 使用了这个组件。想看实际项目怎么接入，可以直接读它的[编辑器接入代码](https://github.com/lin037/jotiva/blob/main/src/editor/note-editor.ts)。
+
+[![Jotiva 的 macOS 编辑界面，展示多款主题和窗口便签](docs/assets/jotiva-macos-themes.webp)](https://github.com/lin037/jotiva)
+
 ## 架构概览
 
 Jot 将前端即时交互与底层文档解析、视口虚拟布局清晰解耦：

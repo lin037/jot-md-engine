@@ -16,7 +16,7 @@ const packageDirectory = resolve(root, "dist/release");
 run("node", ["scripts/release/pack-editor.mjs"], root);
 const manifest = JSON.parse(readFileSync(resolve(packageDirectory, "manifest.json"), "utf8"));
 const [editor] = manifest.packages;
-if (manifest.packages.length !== 1 || editor.name !== "@lin037/jot-md-engine") {
+if (manifest.packages.length !== 1 || editor.name !== "@jot-md/editor") {
   throw new Error("Expected the public editor package in the release manifest");
 }
 
@@ -48,25 +48,25 @@ try {
   writeFileSync(resolve(consumer, "consumer.ts"), `
 ${entries.filter(entry => !entry.endsWith(".css")).map((entry, i) =>
   `import type * as PublicEntry${i} from ${JSON.stringify(entry)};`).join("\n")}
-import { MarkdownEditor, mountShortcutSettings, type EditorHistorySnapshot, type EditorLayoutStyle, type EditorTheme, type EditorTranslations, type MarkdownEditorOptions, type SaveEditorImage, type ConfirmedDocumentChange } from "@lin037/jot-md-engine";
-import { EditorDocumentSession, type AdapterEffect } from "@lin037/jot-md-engine/adapter";
-import { EditorCommandRegistry } from "@lin037/jot-md-engine/commands";
-import { TABLE_COMMAND } from "@lin037/jot-md-engine/table";
-import { createKaTeXRenderer, type KaTeXRendererOptions } from "@lin037/jot-md-engine/math";
-import { createLazyKaTeXRenderer } from "@lin037/jot-md-engine/math/lazy";
-import { createMermaidPlugin, type MermaidPluginOptions } from "@lin037/jot-md-engine/mermaid";
-import { createHeadingFoldPlugin } from "@lin037/jot-md-engine/heading-fold";
-import { createToolbarPlugin, type ToolbarOptions } from "@lin037/jot-md-engine/toolbar";
-import { mountOutline, createOutlinePlugin, type OutlineOptions } from "@lin037/jot-md-engine/outline";
-import { CodeMirrorSource } from "@lin037/jot-md-engine/source";
-import { EditorEventObserver } from "@lin037/jot-md-engine/observability";
-import { EditorSurface } from "@lin037/jot-md-engine/preview";
-import { bootstrapEditorWorker } from "@lin037/jot-md-engine/worker";
+import { MarkdownEditor, mountShortcutSettings, type EditorHistorySnapshot, type EditorLayoutStyle, type EditorTheme, type EditorTranslations, type MarkdownEditorOptions, type SaveEditorImage, type ConfirmedDocumentChange } from "@jot-md/editor";
+import { EditorDocumentSession, type AdapterEffect } from "@jot-md/editor/adapter";
+import { EditorCommandRegistry } from "@jot-md/editor/commands";
+import { TABLE_COMMAND } from "@jot-md/editor/table";
+import { createKaTeXRenderer, type KaTeXRendererOptions } from "@jot-md/editor/math";
+import { createLazyKaTeXRenderer } from "@jot-md/editor/math/lazy";
+import { createMermaidPlugin, type MermaidPluginOptions } from "@jot-md/editor/mermaid";
+import { createHeadingFoldPlugin } from "@jot-md/editor/heading-fold";
+import { createToolbarPlugin, type ToolbarOptions } from "@jot-md/editor/toolbar";
+import { mountOutline, createOutlinePlugin, type OutlineOptions } from "@jot-md/editor/outline";
+import { CodeMirrorSource } from "@jot-md/editor/source";
+import { EditorEventObserver } from "@jot-md/editor/observability";
+import { EditorSurface } from "@jot-md/editor/preview";
+import { bootstrapEditorWorker } from "@jot-md/editor/worker";
 
 const editorConstructor: typeof MarkdownEditor = MarkdownEditor;
 const workerBootstrap: typeof bootstrapEditorWorker = bootstrapEditorWorker;
 const connectWorker = (endpoint: DedicatedWorkerGlobalScope) =>
-  bootstrapEditorWorker({ endpoint, loadWasm: () => import("@lin037/jot-md-engine/wasm") });
+  bootstrapEditorWorker({ endpoint, loadWasm: () => import("@jot-md/editor/wasm") });
 const documentId = "consumer" as MarkdownEditorOptions["session"]["documentId"];
 const options = null as unknown as MarkdownEditorOptions;
 const layout: EditorLayoutStyle = { fontSize: 18, metrics: { paragraphLineHeight: 30, listMinContentWidth: 120 } };
@@ -164,10 +164,10 @@ for (const entry of entries) {
 for (const entry of entries.filter((candidate) => !candidate.endsWith(".css"))) {
   await import(entry);
 }
-const coreCss = readFileSync(new URL(import.meta.resolve("@lin037/jot-md-engine/core.css")), "utf8");
-const mathCssUrl = new URL(import.meta.resolve("@lin037/jot-md-engine/math.css"));
+const coreCss = readFileSync(new URL(import.meta.resolve("@jot-md/editor/core.css")), "utf8");
+const mathCssUrl = new URL(import.meta.resolve("@jot-md/editor/math.css"));
 const mathCss = readFileSync(mathCssUrl, "utf8");
-const combinedCss = readFileSync(new URL(import.meta.resolve("@lin037/jot-md-engine/styles.css")), "utf8");
+const combinedCss = readFileSync(new URL(import.meta.resolve("@jot-md/editor/styles.css")), "utf8");
 if (coreCss.includes("@font-face") || coreCss.includes("fonts/")) {
   throw new Error("core.css unexpectedly includes font assets");
 }
@@ -183,24 +183,24 @@ for (const fontPath of fontPaths) {
     throw new Error("math.css references an unpacked font: " + fontPath);
   }
 }
-const rootMath = await import("@lin037/jot-md-engine");
-const dedicatedMath = await import("@lin037/jot-md-engine/math");
+const rootMath = await import("@jot-md/editor");
+const dedicatedMath = await import("@jot-md/editor/math");
 if (rootMath.createKaTeXRenderer !== dedicatedMath.createKaTeXRenderer) {
   throw new Error("math subpath must retain the original root renderer identity");
 }
-const lazyMath = await import("@lin037/jot-md-engine/math/lazy");
+const lazyMath = await import("@jot-md/editor/math/lazy");
 if (rootMath.createLazyKaTeXRenderer !== lazyMath.createLazyKaTeXRenderer) {
   throw new Error("lazy math subpath must retain the root renderer identity");
 }
-const dedicatedMermaid = await import("@lin037/jot-md-engine/mermaid");
+const dedicatedMermaid = await import("@jot-md/editor/mermaid");
 if (rootMath.createMermaidPlugin !== dedicatedMermaid.createMermaidPlugin) {
   throw new Error("mermaid subpath must retain the root plugin identity");
 }
-const dedicatedHeadingFold = await import("@lin037/jot-md-engine/heading-fold");
+const dedicatedHeadingFold = await import("@jot-md/editor/heading-fold");
 if (rootMath.createHeadingFoldPlugin !== dedicatedHeadingFold.createHeadingFoldPlugin) {
   throw new Error("heading-fold subpath must retain the root plugin identity");
 }
-const { createToolbarPlugin } = await import("@lin037/jot-md-engine/toolbar");
+const { createToolbarPlugin } = await import("@jot-md/editor/toolbar");
 if (createToolbarPlugin().id !== "toolbar" || createToolbarPlugin({ enabled: false }).enabled !== false) {
   throw new Error("the toolbar subpath must export an optional editor plugin");
 }

@@ -17,12 +17,12 @@ pnpm install --frozen-lockfile
 pnpm run package:verify
 ```
 
-This builds the tarball in `dist/release/` and tests the imports and Worker in a clean project. The current scripts still package `@lin037/jot-md-engine`. Update the package configuration and release scripts before using their output to release `@jot-md/editor`.
+This builds the tarball in `dist/release/` and tests the imports and Worker in a clean project.
 
 ## Publishing to npm & GitHub Releases
 
 1. Update the version in `packages/editor/package.json`. After merging to `main`, take the `jot-editor-package` artifact from the successful CI run for that commit. Check that the tarball contains the intended name and version.
-2. Publish the verified `.tgz` with `npm publish` and `--access public`. For Trusted Publishing, enter `publish-npm.yml` as the workflow filename, select the `npm` environment, and allow direct publishing. Then run **Actions → Publish npm package** on `main` after the release scripts use the official package name.
+2. Publish the verified `.tgz` with `npm publish` and `--access public`. For Trusted Publishing, enter `publish-npm.yml` as the workflow filename, select the `npm` environment, and allow direct publishing. Then run **Actions → Publish npm package** on `main`.
 3. Check the published tarball with `npm view @jot-md/editor@<version> dist.integrity`. Attach the verified tarball to the matching GitHub Release.
 
 ## Deploying the Demo
