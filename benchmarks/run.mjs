@@ -19,7 +19,7 @@ const { values } = parseArgs({
     "no-build": { type: "boolean" },
   },
 });
-const scenarios = ["open", "typing", "scroll", "insert", "paste", "drop", "cursor-insert"];
+const scenarios = ["open", "typing", "replace", "scroll", "insert", "paste", "drop", "cursor-insert"];
 if (values.scenario !== undefined) assert(scenarios.includes(values.scenario), `--scenario must be one of ${scenarios.join(", ")}`);
 const samples = Number(values.samples);
 const bytes = Number(values.bytes);
@@ -83,8 +83,8 @@ try {
     for (let i = 0; i <= samples; i++) {
       await client.evaluate(`benchmark.prepare(${JSON.stringify(name)}, fixture)`);
       const start = performance.now();
-      if (name === "insert" || name === "typing") {
-        await client.command("Input.insertText", { text: name === "typing" ? "字" : source });
+      if (name === "insert" || name === "typing" || name === "replace") {
+        await client.command("Input.insertText", { text: name === "insert" ? source : "字" });
       } else if (name === "scroll") {
         await client.command("Input.dispatchMouseEvent", { type: "mouseWheel", x: 440, y: 300, deltaX: 0, deltaY: 4800 });
       } else if (name === "paste") {

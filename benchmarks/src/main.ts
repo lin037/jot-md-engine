@@ -2,7 +2,7 @@ import { FRONTEND_REQUEST_ID_MAX, PROTOCOL_VERSION, type DocumentId, type Respon
 
 import { MarkdownEditor } from "../../packages/editor/src/index.js";
 
-type Scenario = "open" | "insert" | "paste" | "drop" | "typing" | "scroll" | "cursor-insert";
+type Scenario = "open" | "insert" | "paste" | "drop" | "typing" | "replace" | "scroll" | "cursor-insert";
 
 interface Timing {
   visibleMs?: number;
@@ -36,10 +36,12 @@ async function prepare(scenario: Scenario, fixture: string) {
   const errors: string[] = [];
   worker.addEventListener("error", event => errors.push(event.message));
   addEventListener("error", event => errors.push(event.message), { signal: abort.signal });
-  const existing = scenario === "typing" || scenario === "scroll" || scenario === "cursor-insert";
+  const singleCharacter = scenario === "typing" || scenario === "replace";
+  const existing = singleCharacter || scenario === "scroll" || scenario === "cursor-insert";
   const initial = existing || scenario === "open" ? fixture : "";
   const editAt = fixture.indexOf("BOLD_");
-  const expected = scenario === "typing" ? fixture.slice(0, editAt) + "字" + fixture.slice(editAt) : fixture;
+  const selectionEnd = editAt + (scenario === "replace" ? 1 : 0);
+  const expected = singleCharacter ? fixture.slice(0, editAt) + "字" + fixture.slice(selectionEnd) : fixture;
   const revision = scenario === "open" || scenario === "scroll" ? 0 : 1;
   const startOpen = performance.now();
   const editor = new MarkdownEditor({
@@ -72,7 +74,7 @@ async function prepare(scenario: Scenario, fixture: string) {
   // 每次编辑和滚动都从准备好的同一状态开始。首屏准备不计入样本。
   await observe(startOpen, editor, "open", initial, 0, errors);
   await editor.livePreview.settled();
-  if (scenario === "typing") view.dispatch({ selection: { anchor: editAt } });
+  if (singleCharacter) view.dispatch({ selection: { anchor: editAt, head: selectionEnd } });
   editor.focus();
   if (!view.hasFocus) throw new Error("编辑器未获得焦点");
 
@@ -102,14 +104,14 @@ async function prepare(scenario: Scenario, fixture: string) {
     return;
   }
 
-  const eventType = { insert: "beforeinput", paste: "paste", drop: "drop", typing: "beforeinput", scroll: "wheel" }[scenario];
+  const eventType = { insert: "beforeinput", paste: "paste", drop: "drop", typing: "beforeinput", replace: "beforeinput", scroll: "wheel" }[scenario];
   finish = new Promise((resolve, reject) => {
     root.addEventListener(eventType, event => {
       const started = performance.now();
       const received = event instanceof InputEvent ? event.data :
         event instanceof ClipboardEvent ? event.clipboardData?.getData("text/plain") :
         event instanceof DragEvent ? event.dataTransfer?.getData("text/plain") : undefined;
-      if (scenario !== "scroll" && received !== (scenario === "typing" ? "字" : fixture)) {
+      if (scenario !== "scroll" && received !== (singleCharacter ? "字" : fixture)) {
         reject(new Error(`${scenario} 的输入与样本不同`));
         return;
       }
@@ -139,6 +141,10 @@ async function observe(
   const timing: Timing = {};
   const initialScroll = view.scrollDOM.scrollTop;
   const initialRange = view.visibleRanges[0]?.from ?? 0;
+  const editMarker: Partial<Record<Scenario, string>> = {
+    "cursor-insert": "INSERTED_SENTINEL", typing: "字BOLD_", replace: "字OLD_",
+  };
+  const marker = editMarker[scenario] ?? /(?:SECTION|BOLD|TABLE|LIST|QUOTE|CODE)_\d{5}|FINAL_SENTINEL/;
   let previousFrame: number | undefined;
   // 在确认和解析回调到达时取时。逐帧轮询会把同一帧内发生的两件事记为同时完成。
   const recordRevision = () => {
@@ -163,7 +169,6 @@ async function observe(
         const pane = view.scrollDOM.getBoundingClientRect();
         const moved = scenario !== "scroll" ||
           (view.scrollDOM.scrollTop > initialScroll && (view.visibleRanges[0]?.from ?? 0) > initialRange);
-        const marker = scenario === "cursor-insert" ? "INSERTED_SENTINEL" : scenario === "typing" ? "字BOLD_" : /(?:SECTION|BOLD|TABLE|LIST|QUOTE|CODE)_\d{5}|FINAL_SENTINEL/;
         const lines = view.contentDOM.querySelectorAll(".cm-line");
         const visible = expected.length === 0 || Array.from(lines).some(line => {
           const text = line.textContent ?? "";

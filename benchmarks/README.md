@@ -27,6 +27,7 @@ Set `CHROME_BIN` to point to a specific Chrome/Chromium executable. Reports are 
 | --- | --- |
 | **Open** | Creates the editor with the initial ~1 MiB document and measures from editor creation. |
 | **Single character insert** | Types one character into an already-open, fully parsed ~1 MiB document. |
+| **Replace a character** | Selects and replaces one character near the start of a parsed document. |
 | **Scroll** | Dispatches real mouse wheel events on an open document and verifies viewport scroll and newly mounted content. |
 | **Bulk insert** | Sends a single trusted `Input.insertText` payload into an empty editor. |
 | **Paste** | Dispatches a synthetic `ClipboardEvent` containing the full payload through CodeMirror's paste pipeline (excluding OS clipboard overhead). |

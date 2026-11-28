@@ -29,7 +29,10 @@ export class SyntaxBlockIndex {
 
   /** Find one confirmed owner for an ordered batch that cannot touch a neighboring root. */
   batchOwner(edits: readonly TextEdit[]): number | undefined {
-    if (edits.length < 2) return undefined;
+    return edits.length >= 2 ? this.#editOwner(edits) : undefined;
+  }
+
+  #editOwner(edits: readonly TextEdit[]): number | undefined {
     const first = edits[0]!.range;
     const last = edits.at(-1)!.range;
     const index = this.blockAt(Number(first.from));
@@ -41,8 +44,9 @@ export class SyntaxBlockIndex {
   }
 
   applyTextEdits(edits: readonly TextEdit[]): void {
-    if (edits.length > 0) this.#version += 1;
-    const owner = this.batchOwner(edits);
+    if (edits.length === 0) return;
+    this.#version += 1;
+    const owner = this.#editOwner(edits);
     if (owner !== undefined) {
       const delta = edits.reduce((length, edit) =>
         length + edit.insert.length - (Number(edit.range.to) - Number(edit.range.from)), 0);
@@ -66,6 +70,7 @@ export class SyntaxBlockIndex {
       const to = Number(edit.range.to);
       const delta = edit.insert.length - (to - from);
       this.#blocks = this.#blocks.map((block) => {
+        if (block.kind === "unloaded") return block;
         const blockFrom = Number(block.sourceRange.from);
         const blockTo = Number(block.sourceRange.to);
         if (from === to && from >= blockFrom && from <= blockTo) {
@@ -75,7 +80,7 @@ export class SyntaxBlockIndex {
             dirty: true,
           };
         }
-        if (blockFrom >= to) return shifted(block, delta);
+        if (blockFrom >= to) return delta === 0 ? block : shifted(block, delta);
         if (blockTo <= from) return block;
         return {
           ...block,

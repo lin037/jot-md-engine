@@ -19,6 +19,7 @@ import {
   normalizeInsertedText,
   range,
   singleTextEdit,
+  SyntaxBlockIndex,
   Utf16TextModel,
 } from "../../src/adapter/index.js";
 import { codeMirrorChangesToTextEdits } from "../../src/hosts/source/index.js";
@@ -531,6 +532,18 @@ function late_projection_does_not_cancel_a_commit_or_seed_the_new_view(): void {
   equal(adapter.blocks.blocks.length, 1);
 }
 
+function replacing_text_preserves_unchanged_block_metadata(): void {
+  const index = new SyntaxBlockIndex();
+  index.seedProjection(0, [render("edited", 0, 4), render("following", 5, 9)], 3);
+  const [, following, unloaded] = index.blocks;
+  index.applyTextEdits([{ range: range(1, 2), insert: "字" }]);
+  equal(index.blocks[0]?.dirty, true);
+  equal(index.blocks[1], following, "an equal-length replacement preserves following block metadata");
+  index.applyTextEdits([{ range: range(0, 0), insert: "字" }]);
+  equal(index.blocks[1]?.sourceRange.from, offset(6));
+  equal(index.blocks[2], unloaded, "an unloaded slot has no document coordinates to shift");
+}
+
 function commands_only_use_confirmed_blocks_in_sparse_projections(): void {
   const source = "before\n| A | B |";
   const adapter = new EditorDocumentAdapter({ documentId: DOCUMENT, generation: 7, source, syntaxProfile: PROFILE });
@@ -755,6 +768,7 @@ const tests: ReadonlyArray<readonly [string, () => void | Promise<void>]> = [
   ["adapter translates input and applies patches", adapter_translates_input_and_applies_revision_bound_patches],
   ["mode translation separates source and preview", mode_translation_keeps_source_and_preview_paths_separate],
   ["session connects requests and background updates", session_connects_requests_and_background_updates],
+  ["replacements preserve unaffected block metadata", replacing_text_preserves_unchanged_block_metadata],
   ["command targets use confirmed sparse blocks", commands_only_use_confirmed_blocks_in_sparse_projections],
   ["late projection cannot seed the current view", late_projection_does_not_cancel_a_commit_or_seed_the_new_view],
   ["fatal Worker rejects outstanding work", fatal_worker_failure_settles_foreground_and_queued_requests],
