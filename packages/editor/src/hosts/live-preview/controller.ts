@@ -845,6 +845,12 @@ export class LivePreviewController {
       ...(this.#options.onTableCommand === undefined
         ? {}
         : { onTableCommand: this.#options.onTableCommand }),
+      readTableRow: (tableStart, rowOffset) => {
+        const doc = view.state.doc;
+        if (tableStart > doc.length) return undefined;
+        const line = doc.lineAt(tableStart).number + rowOffset;
+        return line <= doc.lines ? doc.line(line) : undefined;
+      },
       onTableCellFocus: (offset, cellRange, cellElement, event) => {
         // A desktop IME owns the active cell until compositionend. Pointer
         // movement during candidate selection must not retarget that session.

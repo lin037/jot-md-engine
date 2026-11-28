@@ -84,6 +84,59 @@ export async function runTableDeleteScenarios({c,load,settle,confirmed,screensho
     const preview=await snapshot();record.preview=preview;verify(preview,1,single.source,'Preview single column');
     await c.evaluate(`editor.setMode('live-preview')`);await settle();
   }
+  // The Worker can confirm a schema edit before the virtual grid receives its
+  // new cells. Hit the still-mounted first column during that exact interval.
+  const threeColumns = "| A | B | C |\n| --- | --- | --- |\n| x | second cell | z |";
+  for (const mode of ["split", "live-preview"]) {
+    await c.evaluate(`editor.setMode(${JSON.stringify(mode)})`);
+    await load(threeColumns);
+    await click('.jot-table-grid-body .jot-table-cell[data-jot-column-index="2"]');
+    const remaining = await c.evaluate(`(async () => {
+      const session = editor.session;
+      const project = session.project;
+      let resume;
+      const gate = new Promise(resolve => { resume = resolve; });
+      session.project = async function (...args) {
+        if (editor.mode === "live-preview") await gate;
+        return project.apply(this, args);
+      };
+      try {
+        const grid = () => [...document.querySelectorAll('.jot-table')].find(node => node.clientWidth > 0);
+        const remove = () => grid().querySelector('[data-jot-table-command="table.delete-column"]').click();
+        remove();
+        await editor.input.settled();
+        // Split Preview remounts the grid before the next pointer target exists.
+        if (editor.mode === "split") {
+          for (let i = 0; i < 120; i++) {
+            if (grid()?.getAttribute('aria-colcount') === '2' &&
+                grid().querySelector('.jot-table-grid-body [data-jot-source-from]')) break;
+            await new Promise(requestAnimationFrame);
+          }
+        }
+        const cell = grid().querySelector('.jot-table-grid-body [data-jot-column-index="0"]');
+        const rect = cell.getBoundingClientRect();
+        const point = { bubbles: true, button: 0, clientX: rect.left + 2, clientY: rect.top + rect.height / 2 };
+        cell.dispatchEvent(new MouseEvent('mousedown', point));
+        cell.dispatchEvent(new MouseEvent('mouseup', point));
+        remove();
+        await editor.input.settled();
+        return editor.confirmedValue;
+      } finally {
+        session.project = project;
+        resume();
+      }
+    })()`);
+    assert.equal(remaining, "| B |\n| --- |\n| second cell |", mode + ": the retained first column targets the current source row");
+    results.push({ case: "table-column-click-before-projection", mode });
+  }
+  await c.evaluate("editor.setMode('split')");
+  const quoted = "> | A | B |\n> | --- | --- |\n> | first | second |";
+  await load(quoted);
+  await click('.jot-table-grid-body .jot-table-cell[data-jot-column-index="1"]');
+  const caret = await c.evaluate("view.state.selection.main.head");
+  assert(caret >= quoted.indexOf("second") && caret <= quoted.indexOf("second") + 6,
+    "quote markers do not count as a table column");
+  await c.evaluate("editor.setMode('live-preview')");
   const ticks = "`".repeat(3);
   const fence = [ticks + " a|b", "x|y", ticks].join("\n");
   const table = ["| A | B |", "| --- | --- |", "| C | D |", "| --- | --- |", "| X | 　正文\u00a0 |"].join("\n");

@@ -2,6 +2,7 @@ import { editorI18nAt } from "../../../core/i18n.js";
 import type {
   ProjectionSlice,
   RenderNode,
+  TextRange,
 } from "@jot-md/editor-protocol";
 import {
   stringsAttribute,
@@ -40,6 +41,9 @@ import type { ComponentPreviewAdapter, ComponentPreviewHost } from "../../contra
 import type { TableComponentModel } from "../model.js";
 import type { TablePreviewComponent, TablePreviewHost } from "../preview-host.js";
 import { createTableToolbar, refreshTableToolbar } from "../toolbar.js";
+import { range } from "../../../adapter/text-model.js";
+import { quotePrefix } from "../../common/quote-prefix.js";
+import { tableRowCells } from "../source.js";
 import { TABLE_COMMAND } from "../commands.js";
 
 /** Table 的 Preview adapter；宿主只提供端口，表格自己拥有二维窗口与列宽策略。 */
@@ -438,12 +442,38 @@ export class TableGrid implements TablePreviewComponent {
     if (event.button !== 0) return;
     if ((event.target as Element | null)?.closest?.("a[href]") != null) return;
     const target = event.target instanceof Element
-      ? event.target.closest<HTMLElement>(".jot-table-cell[data-jot-source-from]")
+      ? event.target.closest<HTMLElement>(".jot-table-cell[data-jot-column-index]")
       : null;
     if (target === null || target.closest(".jot-table-column-resize") !== null) return;
-    const from = Number(target.dataset["jotSourceFrom"]);
-    const to = Number(target.dataset["jotSourceTo"]);
-    if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || to < from) return;
+    const rowIndex = Number(target.closest('[role="row"]')?.getAttribute("aria-rowindex"));
+    const column = Number(target.dataset["jotColumnIndex"]);
+    if (!Number.isInteger(rowIndex) || rowIndex < 1 || !Number.isInteger(column)) return;
+    // The mounted grid may still describe the previous column schema. Resolve
+    // the hit in the current source using only the header and the clicked row.
+    const rowOffset = rowIndex === 1 ? 0 : rowIndex; // skip the Markdown delimiter
+    const header = this.#sourceRow(0);
+    if (header === undefined) return;
+    const current = rowOffset === 0 ? header : this.#sourceRow(rowOffset);
+    if (current === undefined) return;
+    const headerInset = Math.max(0, this.#tableRange.from - header.from);
+    let inset = rowOffset === 0 ? headerInset : 0;
+    if (rowOffset > 0 && headerInset > 0) {
+      const depth = quotePrefix(header.text.slice(0, headerInset), 0, Infinity)?.depth ?? 0;
+      inset = quotePrefix(current.text, 0, depth)?.to ?? 0;
+    }
+    const cell = tableRowCells(current.text.slice(inset), current.from + inset)[column];
+    if (cell === undefined) return;
+    const cellRange = range(cell.from, cell.to);
+    const oldFrom = Number(target.dataset["jotSourceFrom"]);
+    const oldTo = Number(target.dataset["jotSourceTo"]);
+    const localOffset = Number.isSafeInteger(oldFrom) && Number.isSafeInteger(oldTo)
+      ? sourceOffsetAtPoint(target, event.clientX, event.clientY, { from: oldFrom, to: oldTo }) - oldFrom
+      : 0;
+    const offset = cell.from + Math.min(localOffset, cell.to - cell.from);
+    if ((oldFrom !== cell.from || oldTo !== cell.to) && !this.#rebaseSourceSubtree(target, cellRange)) {
+      target.dataset["jotSourceFrom"] = String(cell.from);
+      target.dataset["jotSourceTo"] = String(cell.to);
+    }
     event.preventDefault();
     // TableGrid owns the pointer → source mapping. Letting the event continue
     // into CodeMirror makes CM resolve the replacement widget as one opaque
@@ -453,14 +483,23 @@ export class TableGrid implements TablePreviewComponent {
     // selection and may focus its one transient platform-input surface.
     event.stopPropagation();
     this.#runtime.options.onTableCellFocus?.(
-      sourceOffsetAtPoint(target, event.clientX, event.clientY, { from, to }),
-      {
-        from: from as RenderNode["sourceRange"]["from"],
-        to: to as RenderNode["sourceRange"]["to"],
-      },
+      offset,
+      cellRange,
       target,
       event,
     );
+    if (this.#toolbar !== undefined) refreshTableToolbar(this.#toolbar);
+  }
+
+  #sourceRow(rowOffset: number): { from: number; text: string } | undefined {
+    const { readTableRow, session } = this.#runtime.options;
+    if (readTableRow !== undefined) return readTableRow(this.#tableRange.from, rowOffset);
+    const model = session.adapter.text;
+    if (this.#tableRange.from > model.utf16Length) return undefined;
+    const index = model.lineAt(this.#tableRange.from) + rowOffset;
+    if (index >= model.lineCount) return undefined;
+    const { from, to } = model.lineRange(index);
+    return { from, text: model.text.slice(from, to) };
   }
 
   #renderHeader(): void {
@@ -473,7 +512,7 @@ export class TableGrid implements TablePreviewComponent {
       if (this.#rowNeedsContentUpdate(existing, this.#headerNode)) {
         this.#updateRow(existing, this.#headerNode, true, 0);
       } else if (this.#nodeNeedsSourceRebase(existing, this.#headerNode)) {
-        this.#rebaseSourceSubtree(existing, this.#headerNode);
+        this.#rebaseSourceSubtree(existing, this.#headerNode.sourceRange);
         this.#refreshRowSelection(existing, this.#headerNode, true, 0);
       } else {
         this.#refreshRowSelection(existing, this.#headerNode, true, 0);
@@ -567,7 +606,7 @@ export class TableGrid implements TablePreviewComponent {
         if (this.#nodeNeedsContentUpdate(cell, cellNode)) {
           this.#runtime.update(cell, cellNode);
         } else if (this.#nodeNeedsSourceRebase(cell, cellNode)) {
-          this.#rebaseSourceSubtree(cell, cellNode);
+          this.#rebaseSourceSubtree(cell, cellNode.sourceRange);
         }
       }
       configureTableCellElement(cell, {
@@ -636,7 +675,7 @@ export class TableGrid implements TablePreviewComponent {
       return;
     }
     if (this.#nodeNeedsSourceRebase(element, row)) {
-      this.#rebaseSourceSubtree(element, row);
+      this.#rebaseSourceSubtree(element, row.sourceRange);
     }
     const cells = this.#visibleCells(row, this.#columnWindow().from, this.#columnWindow().toExclusive);
     for (const cell of Array.from(element.children) as HTMLElement[]) {
@@ -707,11 +746,11 @@ export class TableGrid implements TablePreviewComponent {
    * anchors already present in this DOM subtree; text, row geometry and
    * component instances stay intact.
    */
-  #rebaseSourceSubtree(element: HTMLElement, node: RenderNode): boolean {
+  #rebaseSourceSubtree(element: HTMLElement, nextRange: TextRange): boolean {
     const previousFrom = Number(element.dataset["jotSourceFrom"]);
     const previousTo = Number(element.dataset["jotSourceTo"]);
-    const nextFrom = Number(node.sourceRange.from);
-    const nextTo = Number(node.sourceRange.to);
+    const nextFrom = Number(nextRange.from);
+    const nextTo = Number(nextRange.to);
     const delta = nextFrom - previousFrom;
     if (
       !Number.isSafeInteger(previousFrom) ||
