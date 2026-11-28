@@ -21,7 +21,7 @@ This builds the tarball in `dist/release/` and tests the imports and Worker in a
 
 ## Publishing to npm & GitHub Releases
 
-1. Update the version in `packages/editor/package.json` and merge through a PR. Code PRs run the full checks, and PRs from branches in this repository save the verified package. You can merge several PRs before releasing.
+1. Update the public documentation and benchmark results when applicable, bump the version in `packages/editor/package.json`, and include these changes in the PR. Code PRs run the full checks, and PRs from branches in this repository save the verified package. You can merge several PRs before releasing.
 2. When you are ready to publish, run **Actions → Publish release** on `main` and enter the version. If a successful CI run saved a package for the exact same files, the workflow reuses it. If the files differ or the package is unavailable, the workflow runs the full checks on the selected `main` commit and uses the package from that run.
 3. The workflow publishes the verified `.tgz` to npm and attaches the same file to the matching GitHub Release. If publishing fails, rerun the failed jobs from that release run.
 

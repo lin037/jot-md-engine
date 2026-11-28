@@ -21,7 +21,7 @@ pnpm run package:verify
 
 ## 发布到 npm 与 GitHub Release
 
-1. 在 `packages/editor/package.json` 更新版本号，通过 PR 合入 `main`。代码改动会跑完整检查，本仓库分支开的 PR 还会保存检查过的包。可以合入多个 PR 后再发版。
+1. 如果公开文档或基准结果有变化，先更新对应文档，再更新 `packages/editor/package.json` 的版本号，一并提交 PR。同仓库分支的代码 PR 会执行完整检查并保留验证过的包。可以先合并多个 PR，再选择发版。
 2. 准备发版时，在 **Actions → Publish release** 选择 `main` 并输入版本号。工作流会复用与当前文件完全一致、且已经通过检查的包。文件有变化或包已不可用时，才对这次选中的 `main` 提交跑完整检查并使用这次产出的包。
 3. 工作流会把核对过的 `.tgz` 发布到 npm，并把同一份文件放到对应的 GitHub Release。如果发布中途失败，在这次发布记录里重跑失败的任务即可。
 
