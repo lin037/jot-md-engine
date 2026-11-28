@@ -21,6 +21,8 @@ pnpm run benchmark --no-build --bytes 65536 --samples 1 --output dist/benchmark-
 
 Set `CHROME_BIN` to point to a specific Chrome/Chromium executable. Reports are written to `dist/benchmark-reports/browser.json` by default and include raw samples, median/max timings, browser metadata, and the Wasm binary hash.
 
+Run the optional 1 MiB replace-all stress cases with `--scenario replace-all-fences`, `replace-all-text`, or `replace-all-dense`. The dense case replaces every character on one physical line. They measure synchronous command time, first visible result, time until confirmed text can be saved, and time from the command until the browser file stream closes. Each checks the Rust snapshot, file readback, undo and redo.
+
 ## Scenarios
 
 | Scenario | What It Measures |

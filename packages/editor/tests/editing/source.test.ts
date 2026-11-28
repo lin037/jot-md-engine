@@ -16,7 +16,7 @@ import {
   scheduleIncrementalSearch,
   selectionMatchesSearchQuery,
 } from "../../src/hosts/shared/search-engine.js";
-import { SearchQuery, setSearchQuery } from "@codemirror/search";
+import { replaceAll as nativeReplaceAll, SearchQuery, setSearchQuery } from "@codemirror/search";
 import type { EditorView } from "@codemirror/view";
 import { executeSourceAction, sourceSearch, updateSourceSearch } from "../../src/hosts/source/search.js";
 
@@ -145,6 +145,33 @@ function source_replace_all_is_one_undoable_transaction_and_honors_read_only(): 
   equal(executeSourceAction(view, "search.replace-all"), false);
   equal(executeSourceAction(view, "search.replace-next"), false);
   equal(state.doc.toString(), source);
+}
+
+function large_replacements_match_native_changes_and_selection(): void {
+  const text = "aa ﬀ é 😀 甲 Ａ aaaa\n".repeat(2_048);
+  for (const options of [
+    { search: "aa", replace: "x" },
+    { search: "a", replace: "\\n", caseSensitive: true },
+    { search: "Ａ", replace: "$1", literal: true },
+    { search: "f", replace: "x" }, // A partial match inside the ligature cannot be replaced.
+    { search: "ff", replace: "😀" },
+    { search: "é", replace: "E", wholeWord: true },
+    { search: "😀", replace: "" },
+    { search: "aa\\naa", replace: "line" },
+    { search: "(甲)", replace: "[$1]", regexp: true },
+  ]) {
+    const initial = EditorState.create({
+      doc: text, selection: EditorSelection.range(19, 3), extensions: sourceSearch(),
+    });
+    const state = initial.update({ effects: setSearchQuery.of(new SearchQuery(options)) }).state;
+    const capture = (command: (view: EditorView) => unknown) => {
+      let transaction: Transaction | undefined;
+      const view = { state, dispatch: (spec: TransactionSpec) => { transaction = state.update(spec); } } as unknown as EditorView;
+      const success = command(view);
+      return JSON.stringify([success, transaction?.changes.toJSON(), transaction?.newSelection.toJSON()]);
+    };
+    equal(capture(view => executeSourceAction(view, "search.replace-all")), capture(nativeReplaceAll));
+  }
 }
 
 function engine_sync_preserves_selection_and_does_not_create_history(): void {
@@ -413,3 +440,5 @@ await search_engine_preserves_regexp_and_whole_word_across_chunk_boundaries();
 engine_sync_preserves_selection_and_does_not_create_history();
 read_only_blocks_custom_input_but_allows_explicit_api_updates();
 format_commands_and_dynamic_keybindings_share_one_catalog();
+
+large_replacements_match_native_changes_and_selection();

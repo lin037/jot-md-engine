@@ -64,31 +64,44 @@ export class SyntaxBlockIndex {
       }
       return;
     }
-    for (let editIndex = edits.length - 1; editIndex >= 0; editIndex -= 1) {
-      const edit = edits[editIndex]!;
-      const from = Number(edit.range.from);
-      const to = Number(edit.range.to);
-      const delta = edit.insert.length - (to - from);
-      this.#blocks = this.#blocks.map((block) => {
-        if (block.kind === "unloaded") return block;
-        const blockFrom = Number(block.sourceRange.from);
-        const blockTo = Number(block.sourceRange.to);
-        if (from === to && from >= blockFrom && from <= blockTo) {
-          return {
-            ...block,
-            sourceRange: range(blockFrom, blockTo + delta),
-            dirty: true,
-          };
-        }
-        if (blockFrom >= to) return delta === 0 ? block : shifted(block, delta);
-        if (blockTo <= from) return block;
-        return {
-          ...block,
-          sourceRange: range(blockFrom, Math.max(blockFrom, blockTo + delta)),
-          dirty: true,
-        };
-      });
+    // Map each root once. Edits strictly before it contribute only a net shift.
+    // Intersections still use the original revision in reverse order, including
+    // insertions at a shared boundary that invalidate both neighboring roots.
+    const deltas = [0];
+    for (const { range, insert } of edits) {
+      deltas.push(deltas[deltas.length - 1]! + insert.length - (range.to - range.from));
     }
+    this.#blocks = this.#blocks.map(block => {
+      if (block.kind === "unloaded") return block;
+      let from = Number(block.sourceRange.from), to = Number(block.sourceRange.to);
+      let low = 0, high = edits.length;
+      while (low < high) {
+        const mid = (low + high) >>> 1;
+        if (edits[mid]!.range.to < from) low = mid + 1;
+        else high = mid;
+      }
+      let end = low;
+      while (end < edits.length && edits[end]!.range.from <= to) end++;
+      let dirty = block.dirty;
+      for (let i = end - 1; i >= low; i--) {
+        const edit = edits[i]!.range;
+        const delta = deltas[i + 1]! - deltas[i]!;
+        if (edit.from === edit.to && from <= edit.from && edit.from <= to) {
+          to += delta;
+          dirty = true;
+        } else if (from >= edit.to) {
+          from += delta;
+          to += delta;
+        } else if (to > edit.from) {
+          to = Math.max(from, to + delta);
+          dirty = true;
+        }
+      }
+      from += deltas[low]!;
+      to += deltas[low]!;
+      return from === block.sourceRange.from && to === block.sourceRange.to && dirty === block.dirty
+        ? block : { ...block, sourceRange: range(from, to), dirty };
+    });
   }
 
   applySyntaxPatch(patch: SyntaxPatchSummary): void {

@@ -3503,7 +3503,7 @@ function remapUnaffectedReplacementRanges<T extends { readonly from: number; rea
   update: ViewUpdate,
 ): readonly T[] {
   const changed: Array<{ readonly from: number; readonly to: number }> = [];
-  update.changes.iterChangedRanges((fromA, toA) => {
+  update.changes.desc.iterChangedRanges((fromA, toA) => {
     changed.push({ from: fromA, to: toA });
   });
   return ranges.flatMap((range) => {

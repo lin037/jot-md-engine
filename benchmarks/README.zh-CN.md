@@ -21,6 +21,8 @@ pnpm run benchmark --no-build --bytes 65536 --samples 1 --output dist/benchmark-
 
 如需指定 Chrome/Chromium 路径，可设置 `CHROME_BIN`。测试报告默认输出至 `dist/benchmark-reports/browser.json`，包含原始采样、中位数/最大值统计、浏览器信息与 Wasm 哈希。
 
+用 `--scenario replace-all-fences`、`replace-all-text`、`replace-all-dense` 可单独运行 1 MiB 的围栏、普通文本和连续字符全部替换。连续字符样本在同一行逐字替换。记录命令同步耗时、首次可见时间、可保存时间和从点击到浏览器文件流写入关闭的总耗时，并核对 Rust 快照、文件读回、一次撤销与重做。
+
 ## 测试场景
 
 | 场景 | 测量内容 |

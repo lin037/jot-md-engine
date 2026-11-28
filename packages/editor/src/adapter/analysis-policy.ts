@@ -38,13 +38,16 @@ export function createAnalysisRequest(
   input: AnalysisPolicyInput,
   budgets: EditorAnalysisBudgets = DEFAULT_EDITOR_BUDGETS,
 ): AnalysisRequest {
-  const changed = mapChangedRanges(input.edits);
   const insertedUnits = input.edits.reduce((total, edit) => total + edit.insert.length, 0);
   const removedUnits = input.edits.reduce(
     (total, edit) => total + Number(edit.range.to) - Number(edit.range.from),
     0,
   );
   const bulk = insertedUnits + removedUnits >= 16_384 || input.edits.length > 8;
+  const initialBudget = bulk ? budgets.bulk : budgets.interactive;
+  // A dispersed batch still commits every edit. Only the viewport needs priority
+  // when its edit locations outnumber the foreground parsing budget.
+  const changed = input.edits.length > initialBudget.maxBlocks ? [] : mapChangedRanges(input.edits);
   const purpose =
     input.purpose ?? (input.mode === "source" ? "interactive" : "preview");
   const codeUnitAt = input.sourceBeforeEdits === undefined ? undefined :
@@ -60,7 +63,7 @@ export function createAnalysisRequest(
     },
     consistency: "allow-partial",
     purpose,
-    initialBudget: bulk ? budgets.bulk : budgets.interactive,
+    initialBudget,
   };
 }
 

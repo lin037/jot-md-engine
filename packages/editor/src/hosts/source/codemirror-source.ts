@@ -667,7 +667,7 @@ export class CodeMirrorSource {
         ...(this.#compositionId === undefined
           ? {}
           : { compositionId: this.#compositionId }),
-        edits: codeMirrorChangesToTextEdits(update.changes),
+        edits: codeMirrorChangesToTextEdits(update.changes, nextSource),
         selectionBefore: previousSelection,
         selectionAfter: nextSelection,
       });
@@ -736,7 +736,7 @@ export class CodeMirrorSource {
       try {
         await this.#options.transactions.enqueue(({ source: confirmedSource }) => {
           const edits = confirmedSource === expectedBase
-            ? codeMirrorChangesToTextEdits(pendingChanges)
+            ? codeMirrorChangesToTextEdits(pendingChanges, desired.source)
             : singleTextEdit(
                 confirmedSource,
                 desired.source,
@@ -811,8 +811,16 @@ export class CodeMirrorSource {
 
 class AlreadySynchronized extends Error {}
 
-export function codeMirrorChangesToTextEdits(changes: ChangeSet): readonly TextEdit[] {
+export function codeMirrorChangesToTextEdits(changes: ChangeSet, updatedSource?: string): readonly TextEdit[] {
   const edits: TextEdit[] = [];
+  // The synchronized source is already materialized. Reading its ranges avoids
+  // rebuilding an inserted Text from every adjacent CodeMirror replacement.
+  if (updatedSource !== undefined) {
+    changes.desc.iterChangedRanges((from, to, fromB, toB) => {
+      edits.push({ range: range(from, to), insert: updatedSource.slice(fromB, toB) });
+    });
+    return edits;
+  }
   changes.iterChanges((from, to, _insertedFrom, _insertedTo, inserted) => {
     edits.push({ range: range(from, to), insert: inserted.toString() });
   });

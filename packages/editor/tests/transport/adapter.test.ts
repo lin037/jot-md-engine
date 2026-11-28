@@ -532,6 +532,41 @@ function late_projection_does_not_cancel_a_commit_or_seed_the_new_view(): void {
   equal(adapter.blocks.blocks.length, 1);
 }
 
+function bulk_block_ranges_match_sequential_edits(): void {
+  const roots = Array.from({ length: 50 }, (_, i) => render(String(i), i * 6, (i + 1) * 6));
+  // Include shared endpoints, within-block edits, edits spanning several roots,
+  // an unloaded gap, and a second batch applied to already dirty metadata.
+  const bulk = new SyntaxBlockIndex(), sequential = new SyntaxBlockIndex();
+  for (const index of [bulk, sequential]) {
+    index.seedProjection(0, roots.slice(0, 25), 51);
+    index.seedProjection(26, roots.slice(25), 51);
+  }
+  for (const edits of [
+    [{ range: range(0, 0), insert: "A" }, { range: range(5, 5), insert: "!" },
+      { range: range(6, 6), insert: "😀" }, { range: range(30, 86), insert: "x" },
+      { range: range(145, 160), insert: "" }, { range: range(280, 281), insert: "longer" }],
+    [{ range: range(6, 7), insert: "" }, { range: range(7, 7), insert: "new" },
+      { range: range(12, 14), insert: "ok" }, { range: range(14, 20), insert: "" }],
+  ]) {
+    bulk.applyTextEdits(edits);
+    for (const edit of [...edits].reverse()) sequential.applyTextEdits([edit]);
+    equal(JSON.stringify(bulk.blocks), JSON.stringify(sequential.blocks));
+  }
+}
+
+function distributed_replacements_only_project_the_viewport(): void {
+  const source = "abc\n".repeat(1_000);
+  const adapter = new EditorDocumentAdapter({ documentId: DOCUMENT, generation: 1, source, syntaxProfile: PROFILE });
+  const edits = Array.from({ length: 1_000 }, (_, i) => ({ range: range(i * 4, i * 4 + 1), insert: "z" }));
+  const visible = range(40, 80);
+  const { body } = adapter.transaction({ origin: "keyboard", edits, viewport: { visibleRanges: [visible] } });
+  if (body.type !== "apply-transaction") throw new Error("expected a transaction");
+  equal(body.transaction.edits.length, edits.length);
+  equal(body.projection?.slices.length, 1, "bulk replacements should project the visible window once");
+  equal(body.transaction.analysis?.priority.priorityRanges.length, 0);
+  equal(JSON.stringify(body.transaction.analysis?.priority.visibleRanges), JSON.stringify([visible]));
+}
+
 function replacing_text_preserves_unchanged_block_metadata(): void {
   const index = new SyntaxBlockIndex();
   index.seedProjection(0, [render("edited", 0, 4), render("following", 5, 9)], 3);
@@ -768,6 +803,8 @@ const tests: ReadonlyArray<readonly [string, () => void | Promise<void>]> = [
   ["adapter translates input and applies patches", adapter_translates_input_and_applies_revision_bound_patches],
   ["mode translation separates source and preview", mode_translation_keeps_source_and_preview_paths_separate],
   ["session connects requests and background updates", session_connects_requests_and_background_updates],
+  ["bulk block ranges match sequential edits", bulk_block_ranges_match_sequential_edits],
+  ["distributed replacements only project the viewport", distributed_replacements_only_project_the_viewport],
   ["replacements preserve unaffected block metadata", replacing_text_preserves_unchanged_block_metadata],
   ["command targets use confirmed sparse blocks", commands_only_use_confirmed_blocks_in_sparse_projections],
   ["late projection cannot seed the current view", late_projection_does_not_cancel_a_commit_or_seed_the_new_view],
