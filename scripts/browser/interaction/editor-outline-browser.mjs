@@ -244,7 +244,20 @@ try {
       const aligned = y => y !== null && y >= -1 && y <= trace.padding + trace.line;
       const first = trace.samples.findIndex(aligned);
       assert.ok(first >= 0 && trace.samples.slice(first).every(aligned),
-        mode + " must retain the requested heading at the top through table measurement: " + JSON.stringify(trace.samples));
+        mode + " must retain " + (target === 2 ? "Last" : "Middle") + " at the top through table measurement: " + JSON.stringify(trace.samples));
+      if (mode === "live-preview" && target === 2) {
+        const landing = await run(async () => {
+          await f.editor.settled();
+          const view = f.editor.input.view;
+          const row = [...view.contentDOM.querySelectorAll(".cm-line")].find(line => line.textContent.includes("Last"));
+          return {
+            top: row ? row.getBoundingClientRect().top - view.scrollDOM.getBoundingClientRect().top : null,
+            tables: view.contentDOM.querySelectorAll(".jot-table").length,
+          };
+        });
+        assert.equal(landing.tables, 2, "the settled jump restores the normal projection on both sides of Last");
+        assert.ok(aligned(landing.top), "Last remains aligned when both tables have mounted: " + JSON.stringify(landing));
+      }
     }
   }
   const hostScroll = await run(async () => {

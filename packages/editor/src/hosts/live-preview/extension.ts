@@ -51,6 +51,7 @@ export interface OptimisticEmptyFirstInput {
   readonly kind: "fenced-code" | "math-block";
 }
 export const optimisticEmptyFirstInput = Annotation.define<OptimisticEmptyFirstInput>();
+export const mappedTableCellEdit = Annotation.define<{ readonly from: number; readonly to: number }>();
 
 interface OptimisticPresentation {
   readonly id: string;
@@ -83,6 +84,7 @@ interface LivePreviewExtensionCallbacks {
   readonly onToggleTask?: (from: number) => boolean;
   readonly onWidgetActivate: (view: EditorView, from: number, to: number) => void;
   readonly onTransaction: (transaction: Transaction) => Transaction | readonly TransactionSpec[];
+  readonly resolveMappedTableEdit: (transaction: Transaction) => { readonly from: number; readonly to: number } | undefined;
   readonly onComposition: (active: boolean, event: CompositionEvent, view: EditorView) => void;
 }
 
@@ -136,6 +138,10 @@ export function createLivePreviewExtension(
     createStableMetricGuard(callbacks.isEnabled),
     EditorView.atomicRanges.of((view) => view.state.field(field).atomic),
     EditorState.transactionFilter.of(callbacks.onTransaction),
+    EditorState.transactionExtender.of((transaction) => {
+      const cell = callbacks.resolveMappedTableEdit(transaction);
+      return cell === undefined ? null : { annotations: mappedTableCellEdit.of(cell) };
+    }),
     EditorView.updateListener.of((update) => {
       if (update.selectionSet || update.docChanged) scrollCodeCaretIntoView(update.view);
       if (update.state.readOnly !== update.startState.readOnly) {
@@ -772,8 +778,9 @@ function isMappedSelection(value: Decoration): boolean {
   return spec?.jotLiveSelection === "mapped";
 }
 
-function isTableInputTransaction(transaction: Transaction): boolean {
-  return transaction.annotation(Transaction.userEvent)?.startsWith("input.table.") === true;
+export function isTableInputTransaction(transaction: Transaction): boolean {
+  return transaction.annotation(mappedTableCellEdit) !== undefined ||
+    transaction.annotation(Transaction.userEvent)?.startsWith("input.table.") === true;
 }
 
 function emptyState(): DecorationState {

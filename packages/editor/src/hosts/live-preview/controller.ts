@@ -29,9 +29,11 @@ import { applyPreTextStyleMetrics } from "../../layout/pretext/style-metrics.js"
 import { applyEditorTypography, type EditorLayoutStyle } from "../../layout/pretext/options.js";
 import {
   tableCellAt,
+  tablePipeOffsets,
   tableRowCells,
   resolveTableSurfaceNavigation,
   tableSurfacePositionAt,
+  type TableSurfaceNavigationDirection,
 } from "../../components/table/source.js";
 import {
   tableRenderCellAt,
@@ -51,7 +53,10 @@ import {
   LivePreviewEditPolicy,
   type ProjectionEditChange,
 } from "./edit-policy.js";
-import { createLivePreviewExtension, optimisticEmptyFirstInput, type OptimisticEmptyFirstInput } from "./extension.js";
+import {
+  createLivePreviewExtension, isTableInputTransaction, mappedTableCellEdit,
+  optimisticEmptyFirstInput, type OptimisticEmptyFirstInput,
+} from "./extension.js";
 import { orderedListRenumber } from "./list-indent.js";
 import type { QuoteLine } from "./optimistic-quote.js";
 import { planLivePreview } from "./planner.js";
@@ -87,7 +92,7 @@ import {
 import {
   markLivePreviewUserScroll,
   releaseSourceLine,
-  expandSourceLineWindowAtEnd,
+  restoreSourceLineProjectionWindow,
   nearestRevealDelta,
   captureLivePreviewViewport,
   restoreLivePreviewViewport,
@@ -418,6 +423,7 @@ export class LivePreviewController {
       ...(options.onToggleTask === undefined ? {} : { onToggleTask: options.onToggleTask }),
       onWidgetActivate: (view, from, to) => this.#onWidgetActivate(view, from, to),
       onTransaction: (transaction) => this.#filterTransaction(transaction),
+      resolveMappedTableEdit: (transaction) => this.#resolveMappedTableEdit(transaction),
       onComposition: (active, event, view) => {
         const body = active && event.isTrusted ? this.#emptyCodeBodyAtCloserEnd(view) : undefined;
         if (body !== undefined) view.dispatch({ selection: { anchor: body }, userEvent: "select.keyboard" });
@@ -435,11 +441,11 @@ export class LivePreviewController {
       },
     });
     this.extension = [this.#handle.extension, EditorView.scrollHandler.of((view, range) => {
-      if (!this.#enabled || !this.#opened || !range.empty) return false;
-      const cell = this.#selectionTableCell(view);
-      if (cell === undefined || range.head < cell.from || range.head > cell.to) return false;
-      // A table replacement has no native per-source-line geometry. Let its
-      // visual cell own reveal, including commands issued by the public API.
+      if (!this.#enabled || !this.#opened) return false;
+      const cell = this.#selectionTableCell(view, true);
+      if (cell === undefined || range.from < cell.from || range.to > cell.to) return false;
+      // CodeMirror only sees the bounds of the whole replacement. Use the
+      // visual cell for both carets and ranges restored by keyboard or history.
       this.#scheduleTableReveal(view);
       return true;
     })];
@@ -538,6 +544,8 @@ export class LivePreviewController {
   }
 
   #filterTransaction(transaction: Transaction): Transaction | readonly TransactionSpec[] {
+    const cell = this.#resolveMappedTableEdit(transaction);
+    if (cell !== undefined) return [transaction, { annotations: mappedTableCellEdit.of(cell) }];
     if (!this.allowTransaction(transaction)) return [];
     if (transaction.isUserEvent("input.indent") || transaction.isUserEvent("delete.dedent")) {
       const numbered = this.#numberMovedOrderedList(transaction);
@@ -863,6 +871,7 @@ export class LivePreviewController {
             lineRange: this.#mappedTableCell,
             ...(opaque === undefined ? {} : { opaque }),
             onCaret: () => this.#activateTableInput(view, cellElement),
+            onRangeEnd: () => this.#activateTableInput(view),
           });
         } else {
           view.dispatch({ selection: { anchor: safeOffset } });
@@ -1059,12 +1068,17 @@ export class LivePreviewController {
       if (before !== geometry()) continue;
       const view = this.#view;
       if (view !== undefined && this.#enabled && !this.#composing && this.#sourceIsConfirmed()) {
-        const screen = screenSourceWindow(view);
-        if (expandSourceLineWindowAtEnd(view, screen.from)) {
-          this.#schedule(true);
-          continue;
-        }
         const plan = this.#lastPlanSourceWindow;
+        if (restoreSourceLineProjectionWindow(view)) {
+          const normalWindow = visibleSourceWindow(view);
+          if (plan?.from !== normalWindow.from || plan?.to !== normalWindow.to) {
+            // A block above the destination may be mounted and measured only
+            // after overscan resumes. Keep the alignment active for that plan.
+            this.#schedule(true);
+            continue;
+          }
+        }
+        const screen = screenSourceWindow(view);
         const key = `${this.#options.session.adapter.revision}:${screen.from}:${screen.to}:${plan?.from}:${plan?.to}`;
         if ((plan === undefined || screen.from < plan.from || screen.to > plan.to) && key !== lastCoverageAttempt) {
           // A plan may have committed for an earlier source window while a
@@ -1394,7 +1408,9 @@ export class LivePreviewController {
         this.#replacedBlockRanges,
         update,
       );
-      const tableInput = isTableInputUpdate(update);
+      const tableInput = update.transactions.some(isTableInputTransaction);
+      const mappedEdit = update.transactions[0]?.annotation(mappedTableCellEdit);
+      if (mappedEdit !== undefined) this.#mappedTableCell = mappedEdit;
       this.#tableInputFastPath = tableInput;
       if (tableInput) {
         this.#mappedTableCellElement = update.view.dom.querySelector<HTMLElement>(
@@ -1943,10 +1959,9 @@ export class LivePreviewController {
       this.#tableIme?.active === true &&
       (event.key === "Backspace" || event.key === "Delete") &&
       !event.altKey && !event.ctrlKey && !event.metaKey &&
-      view.state.selection.ranges.length === 1 &&
-      view.state.selection.main.empty
+      view.state.selection.ranges.length === 1
     ) {
-      const cell = this.#selectionTableCell(view);
+      const cell = this.#selectionTableCell(view, true);
       if (cell !== undefined) {
         event.preventDefault();
         // The sink is intentionally empty, so browsers do not reliably emit a
@@ -2072,7 +2087,7 @@ export class LivePreviewController {
           from: Number(projected.target.cell.sourceRange.from),
           to: Number(projected.target.cell.sourceRange.to),
         },
-      });
+      }, direction);
       return true;
     }
     const resolvedTarget = resolveTableSurfaceNavigation(
@@ -2173,7 +2188,7 @@ export class LivePreviewController {
       return true;
     }
     if (target.kind === "cell") {
-      this.#focusTableTarget(view, target.target, false);
+      this.#focusTableTarget(view, target.target, direction);
     } else if (target.kind === "source") {
       // 目标紧邻当前可见 widget。不能根据被替换的 source 几何重新滚动，
       // 否则 CodeMirror 会把隐藏源码位置当成视觉位置，跳到文档首尾。
@@ -2224,7 +2239,7 @@ export class LivePreviewController {
     ) {
       return false;
     }
-    const cell = this.#selectionTableCell(view);
+    const cell = this.#selectionTableCell(view, true);
     if (cell === undefined) return false;
     const normalized = normalizeTableInputType(inputType);
     return normalized === undefined
@@ -2265,7 +2280,7 @@ export class LivePreviewController {
       return true;
     }
 
-    const active = this.#selectionTableCell(view);
+    const active = this.#selectionTableCell(view, true);
     if (active !== undefined) {
       this.#activateTableInput(view);
     } else {
@@ -2420,7 +2435,7 @@ export class LivePreviewController {
       view !== this.#view || !this.#enabled || !this.#opened || this.#disposed ||
       text.length === 0
     ) return;
-    const cell = this.#selectionTableCell(view);
+    const cell = this.#selectionTableCell(view, true);
     if (cell === undefined) return;
     this.#dispatchTableInput(
       view,
@@ -2929,13 +2944,53 @@ export class LivePreviewController {
     });
   }
 
+  #resolveMappedTableEdit(transaction: Transaction): { readonly from: number; readonly to: number } | undefined {
+    const view = this.#view;
+    if (view === undefined || view.state !== transaction.startState ||
+        !this.#enabled || !this.#opened || this.#disposed || !transaction.docChanged ||
+        this.#composing || this.#searchSourceReveal || isTableInputTransaction(transaction) ||
+        !(transaction.isUserEvent("delete") || transaction.isUserEvent("undo") ||
+          transaction.isUserEvent("redo") ||
+          (transaction.isUserEvent("input.type") && !transaction.isUserEvent("input.type.compose")))) return undefined;
+
+    let from = transaction.startState.doc.length;
+    let to = 0;
+    let singleLine = true;
+    transaction.changes.iterChanges((start, end, _newFrom, _newTo, insert) => {
+      from = Math.min(from, start);
+      to = end;
+      singleLine &&= insert.lines === 1;
+    });
+    if (!singleLine) return undefined;
+
+    const cached = this.#awaitingConfirmation ? this.#optimisticTableCell : this.#mappedTableCell;
+    const root = this.#awaitingConfirmation ? undefined : tableRenderRootAt(this.#visibleNodes, from);
+    const active = this.#awaitingConfirmation || root !== undefined ? cached : undefined;
+    const projected = active !== undefined && active.from <= from && to <= active.to
+      ? undefined : tableRenderCellAt(this.#visibleNodes, from)?.cell.sourceRange;
+    const cell = projected === undefined ? active : { from: Number(projected.from), to: Number(projected.to) };
+    if (cell === undefined || from < cell.from || to > cell.to) return undefined;
+
+    const row = transaction.startState.doc.lineAt(from);
+    if (to > row.to) return undefined;
+    const nextRow = transaction.newDoc.lineAt(transaction.changes.mapPos(row.from, -1));
+    const pipes = tablePipeOffsets(row.text);
+    const nextPipes = tablePipeOffsets(nextRow.text);
+    // A native deletion or history step can edit escaped pipes and code spans
+    // without using the table input command. Keep the grid when every original
+    // separator still has the same role after mapping this single cell edit.
+    return pipes.length > 0 && pipes.length === nextPipes.length && pipes.every((pipe, index) =>
+      transaction.changes.mapPos(row.from + pipe, 1) === nextRow.from + nextPipes[index]!)
+      ? cell : undefined;
+  }
+
   #selectionTableCell(
     view: EditorView,
     allowContainedRange = false,
   ): { readonly from: number; readonly to: number } | undefined {
     const selection = view.state.selection.main;
     if (this.#searchSourceReveal || view.state.selection.ranges.length !== 1 ||
-        (!selection.empty && (!allowContainedRange || this.#awaitingConfirmation || !this.#sourceIsConfirmed()))) {
+        (!selection.empty && !allowContainedRange)) {
       return undefined;
     }
     const head = selection.head;
@@ -2948,6 +3003,7 @@ export class LivePreviewController {
         ? optimistic
         : undefined;
     }
+    if (!selection.empty && !this.#sourceIsConfirmed()) return undefined;
     const table = tableRenderRootAt(this.#visibleNodes, head);
     const mapped = this.#mappedTableCell;
     if (
@@ -2988,14 +3044,15 @@ export class LivePreviewController {
   #focusTableTarget(
     view: EditorView,
     target: { readonly cell: { readonly from: number; readonly to: number } },
-    _scrollIntoView = false,
+    direction?: TableSurfaceNavigationDirection,
   ): void {
     this.#mappedTableCell = {
       from: target.cell.from,
       to: target.cell.to,
     };
+    const offset = direction === "left" ? target.cell.to : target.cell.from;
     view.dispatch({
-      selection: { anchor: safeUtf16Offset(sourceSnapshot(view), target.cell.from) },
+      selection: { anchor: safeUtf16Offset(sourceSnapshot(view), offset) },
     });
     this.#activateTableInput(view);
     this.#schedule(false);
@@ -3021,15 +3078,16 @@ export class LivePreviewController {
       this.#tableIme?.cancel();
       return;
     }
-    const active = this.#selectionTableCell(view);
+    const collapsed = view.state.selection.main.empty;
+    const active = this.#selectionTableCell(view, true);
     const surface = this.#tableIme;
     if (active === undefined || surface === undefined) {
       surface?.cancel();
       return;
     }
-    // Selection projection is synchronous and intentionally narrower than a
-    // document replan. It gives us the exact visual caret before focusing the
-    // browser input sink.
+    // Synchronously paint the semantic selection before the native sink
+    // takes focus. A range wholly inside one cell uses the same input path
+    // as its collapsed caret.
     this.#renderRuntime?.refreshSelection();
     const cell = this.#tableCellElement(view, active, preferred);
     if (cell === undefined) {
@@ -3037,9 +3095,9 @@ export class LivePreviewController {
       return;
     }
     this.#mappedTableCellElement = cell;
-    revealLivePreviewTableCaret(view, cell);
+    if (collapsed) revealLivePreviewTableCaret(view, cell);
     surface.focus(cell);
-    this.#scheduleTableReveal(view);
+    if (collapsed) this.#scheduleTableReveal(view);
   }
 
   #tableCellElement(
@@ -3074,7 +3132,7 @@ export class LivePreviewController {
 
   #scheduleTableReveal(view: EditorView, focus = false, attempt = 0): void {
     this.#cancelTableReveal();
-    const expected = this.#selectionTableCell(view);
+    const expected = this.#selectionTableCell(view, true);
     if (expected === undefined) return;
     const run = () => {
       this.#tableRevealFrame = undefined;
@@ -3083,7 +3141,7 @@ export class LivePreviewController {
       ) {
         return;
       }
-      const active = this.#selectionTableCell(view);
+      const active = this.#selectionTableCell(view, true);
       if (
         active === undefined ||
         active.from !== expected.from ||
@@ -3126,7 +3184,7 @@ export class LivePreviewController {
   #syncTableCaret(view: EditorView | undefined, reveal = false): void {
     const active = view === undefined || !this.#enabled || !this.#opened
       ? undefined
-      : this.#selectionTableCell(view);
+      : this.#selectionTableCell(view, true);
     // The table caret is a pure projection of the exact CodeMirror selection,
     // not merely of the active cell. Moving left/right inside one cell must
     // refresh the visual caret even though `active.from/to` is unchanged.
@@ -3174,7 +3232,7 @@ export class LivePreviewController {
         this.#mappedTableCellElement = cell;
         this.#tableIme.retarget(cell);
       }
-      if (reveal && selectionChanged) this.#scheduleTableReveal(view);
+      if (reveal && selectionChanged && selection?.empty) this.#scheduleTableReveal(view);
     }
   }
 
@@ -3481,11 +3539,6 @@ function touchesOriginalChange(
     return range.from <= change.from && change.from <= range.to;
   }
   return range.from < change.to && change.from < range.to;
-}
-
-function isTableInputUpdate(update: ViewUpdate): boolean {
-  return update.transactions.some((transaction) =>
-    transaction.annotation(Transaction.userEvent)?.startsWith("input.table.") === true);
 }
 
 function tableInputData(event: InputEvent): string | undefined {

@@ -1,5 +1,5 @@
 import { editorI18nAt } from "../../core/i18n.js";
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 
 export interface LivePreviewTableInputCallbacks {
   readonly onImagePaste?: (event: ClipboardEvent) => boolean;
@@ -51,6 +51,8 @@ export class LivePreviewTableImeSurface {
     element.addEventListener("input", this.#onInput);
     element.addEventListener("keydown", this.#onKeyDown);
     element.addEventListener("paste", this.#onPaste);
+    element.addEventListener("copy", this.#onCopyOrCut);
+    element.addEventListener("cut", this.#onCopyOrCut);
     element.addEventListener("blur", this.#onBlur);
     view.dom.addEventListener("scroll", this.#onViewportChange, true);
     view.dom.ownerDocument.defaultView?.addEventListener("resize", this.#onViewportChange);
@@ -117,6 +119,8 @@ export class LivePreviewTableImeSurface {
     this.#element.removeEventListener("input", this.#onInput);
     this.#element.removeEventListener("keydown", this.#onKeyDown);
     this.#element.removeEventListener("paste", this.#onPaste);
+    this.#element.removeEventListener("copy", this.#onCopyOrCut);
+    this.#element.removeEventListener("cut", this.#onCopyOrCut);
     this.#element.removeEventListener("blur", this.#onBlur);
     this.#view.dom.removeEventListener("scroll", this.#onViewportChange, true);
     this.#view.dom.ownerDocument.defaultView?.removeEventListener(
@@ -205,6 +209,21 @@ export class LivePreviewTableImeSurface {
       return;
     }
     if (this.#callbacks.onKeyDown(event)) event.preventDefault();
+  };
+
+  readonly #onCopyOrCut = (event: ClipboardEvent): void => {
+    event.stopPropagation();
+    const state = this.#view.state;
+    const { from, to, empty } = state.selection.main;
+    const clipboard = event.clipboardData;
+    if (!this.#active || this.#composing || empty || clipboard === null) return;
+    // The textarea contains only the IME candidate. Copy the semantic
+    // selection using the same output filters as CodeMirror.
+    const text = state.facet(EditorView.clipboardOutputFilter)
+      .reduce((value, filter) => filter(value, state), state.sliceDoc(from, to));
+    clipboard.setData("text/plain", text);
+    event.preventDefault();
+    if (event.type === "cut") this.#callbacks.onBeforeInput("deleteByCut", undefined);
   };
 
   readonly #onPaste = (event: ClipboardEvent): void => {

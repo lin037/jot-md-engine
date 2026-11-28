@@ -5,23 +5,21 @@ import {
 } from "../../components/common/render-utils.js";
 
 interface SourceLineAnchor {
-  from: number | undefined;
+  projectionFrom: number | undefined;
   readonly align: () => void;
-  readonly observer: ResizeObserver;
+  readonly dispose: () => void;
 }
 const sourceLines = new WeakMap<EditorView, SourceLineAnchor>();
 
 export function sourceLineDestination(view: EditorView): number | undefined {
-  return sourceLines.get(view)?.from;
+  return sourceLines.get(view)?.projectionFrom;
 }
 
-/** Once the destination is laid out, include preceding content if EOF prevents top alignment. */
-export function expandSourceLineWindowAtEnd(view: EditorView, firstVisible: number): boolean {
+/** Restore the ordinary projection window while the jump still owns scroll alignment. */
+export function restoreSourceLineProjectionWindow(view: EditorView): boolean {
   const anchor = sourceLines.get(view);
-  const scroll = view.scrollDOM;
-  if (anchor?.from === undefined || firstVisible >= anchor.from ||
-      scroll.scrollTop + scroll.clientHeight < scroll.scrollHeight - 1) return false;
-  anchor.from = undefined;
+  if (anchor?.projectionFrom === undefined) return false;
+  anchor.projectionFrom = undefined;
   return true;
 }
 
@@ -43,9 +41,18 @@ export function revealSourceLine(view: EditorView, offset: number, livePreview: 
     if (Math.abs(scroll.scrollTop - top) > 1) scroll.scrollTop = top;
   };
   const observer = new ResizeObserver(align);
-  const anchor: SourceLineAnchor = { from: offset, align, observer };
+  const anchor: SourceLineAnchor = {
+    projectionFrom: offset,
+    align,
+    dispose: () => {
+      observer.disconnect();
+      scroll.removeEventListener("scroll", align);
+    },
+  };
   sourceLines.set(view, anchor);
   observer.observe(view.contentDOM);
+  // WebKit can adjust the scroll offset without changing the content size.
+  scroll.addEventListener("scroll", align, { passive: true });
   return () => {
     // An older navigation can finish after a newer one has installed its anchor.
     if (sourceLines.get(view) === anchor) releaseSourceLine(view);
@@ -53,7 +60,7 @@ export function revealSourceLine(view: EditorView, offset: number, livePreview: 
 }
 
 export function releaseSourceLine(view: EditorView): void {
-  sourceLines.get(view)?.observer.disconnect();
+  sourceLines.get(view)?.dispose();
   sourceLines.delete(view);
 }
 
