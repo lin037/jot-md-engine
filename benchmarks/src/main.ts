@@ -2,13 +2,16 @@ import { FRONTEND_REQUEST_ID_MAX, PROTOCOL_VERSION, type DocumentId, type Respon
 
 import { MarkdownEditor } from "../../packages/editor/src/index.js";
 
-type Scenario = "open" | "insert" | "paste" | "drop" | "typing" | "replace" | "scroll" | "cursor-insert" | keyof typeof replacements;
+type Scenario = "open" | "insert" | "paste" | "drop" | "typing" | "replace" | "scroll" | "cursor-insert" | "paste-paragraph" | "find-next" | "undo" | "redo" | keyof typeof replacements;
 
 const replacements = {
   "replace-all-fences": ["```", "EX_FENCE"],
   "replace-all-text": ["中文", "改写"],
   "replace-all-dense": ["a", "b"],
 } as const;
+
+const paragraph = "会议小结：已核对正文与表格，下一步整理本周的待办事项。";
+const searchTarget = "FINAL_SENTINEL";
 
 interface Timing {
   visibleMs?: number;
@@ -27,6 +30,7 @@ let dispose = () => {};
 let finish: Promise<Timing>;
 let paste: () => void;
 let replaceAll: () => void;
+let runCommand: () => void;
 let insertAtCursor: () => void;
 
 Object.assign(window, {
@@ -35,6 +39,7 @@ Object.assign(window, {
     finish: () => finish,
     paste: () => paste(),
     replaceAll: () => replaceAll(),
+    runCommand: () => runCommand(),
     insertAtCursor: () => insertAtCursor(),
     dispose: () => dispose(),
   },
@@ -53,11 +58,13 @@ async function prepare(scenario: Scenario, fixture: string) {
   worker.addEventListener("error", event => errors.push(event.message));
   addEventListener("error", event => errors.push(event.message), { signal: abort.signal });
   const singleCharacter = scenario === "typing" || scenario === "replace";
-  const existing = isBulkReplacement(scenario) || singleCharacter || scenario === "scroll" || scenario === "cursor-insert";
-  const initial = existing || scenario === "open" ? fixture : "";
+  const existing = scenario !== "insert" && scenario !== "paste" && scenario !== "drop";
+  const initial = existing ? fixture : "";
   const editAt = fixture.indexOf("BOLD_");
   const selectionEnd = editAt + (scenario === "replace" ? 1 : 0);
-  const expected = singleCharacter ? fixture.slice(0, editAt) + "字" + fixture.slice(selectionEnd) : fixture;
+  const inserted = scenario === "paste-paragraph" ? paragraph : "字";
+  const inlineEdit = singleCharacter || scenario === "paste-paragraph";
+  const expected = inlineEdit ? fixture.slice(0, editAt) + inserted + fixture.slice(selectionEnd) : fixture;
   const revision = scenario === "open" || scenario === "scroll" ? 0 : 1;
   const startOpen = performance.now();
   const editor = new MarkdownEditor({
@@ -90,9 +97,49 @@ async function prepare(scenario: Scenario, fixture: string) {
   // 每次编辑和滚动都从准备好的同一状态开始。首屏准备不计入样本。
   await observe(startOpen, editor, "open", initial, 0, errors, scenario === "replace-all-dense" ? "aaaa" : undefined);
   await editor.livePreview.settled();
-  if (singleCharacter) view.dispatch({ selection: { anchor: editAt, head: selectionEnd } });
+  if (inlineEdit) view.dispatch({ selection: { anchor: editAt, head: selectionEnd } });
   editor.focus();
   if (!view.hasFocus) throw new Error("编辑器未获得焦点");
+
+  if (scenario === "find-next") {
+    const targetAt = fixture.lastIndexOf(searchTarget);
+    if (targetAt < 0 || view.visibleRanges.some(r => r.to >= targetAt)) throw new Error("expected an offscreen match");
+    runCommand = () => {
+      const started = performance.now();
+      editor.setSearchQuery({ search: searchTarget });
+      if (!editor.findNext()) throw new Error("search failed");
+      finish = observe(started, editor, scenario, fixture, 0, errors, searchTarget).then(timing => {
+        const selection = view.state.selection.main;
+        if (selection.from !== targetAt || selection.to !== targetAt + searchTarget.length) throw new Error("incorrect match");
+        return timing;
+      });
+    };
+    return;
+  }
+
+  if (scenario === "undo" || scenario === "redo") {
+    const original = "BOLD_00000";
+    const changed = "EDIT_00000";
+    if (!fixture.startsWith(original, editAt)) throw new Error("history fixture marker missing");
+    const edited = fixture.slice(0, editAt) + changed + fixture.slice(editAt + original.length);
+    view.dispatch({ changes: { from: editAt, to: editAt + original.length, insert: changed }, userEvent: "input.type" });
+    await editor.input.settled();
+    if (editor.confirmedValue !== edited) throw new Error("history setup edit failed");
+    if (scenario === "redo") {
+      if (!editor.executeCommand("history.undo")) throw new Error("history setup undo failed");
+      await editor.input.settled();
+      if (editor.confirmedValue !== fixture) throw new Error("history setup undo lost text");
+    }
+    await editor.livePreview.settled();
+    runCommand = () => {
+      const started = performance.now();
+      const nextRevision = Number(editor.revision) + 1;
+      if (!editor.executeCommand("history." + scenario)) throw new Error("history command failed");
+      finish = observe(started, editor, scenario, scenario === "undo" ? fixture : edited,
+        nextRevision, errors, scenario === "undo" ? original : changed);
+    };
+    return;
+  }
 
   if (isBulkReplacement(scenario)) {
     const [search, replace] = replacements[scenario];
@@ -151,18 +198,18 @@ async function prepare(scenario: Scenario, fixture: string) {
     return;
   }
 
-  const eventType = { insert: "beforeinput", paste: "paste", drop: "drop", typing: "beforeinput", replace: "beforeinput", scroll: "wheel" }[scenario];
+  const eventType = { insert: "beforeinput", paste: "paste", "paste-paragraph": "paste", drop: "drop", typing: "beforeinput", replace: "beforeinput", scroll: "wheel" }[scenario];
   finish = new Promise((resolve, reject) => {
     root.addEventListener(eventType, event => {
       const started = performance.now();
       const received = event instanceof InputEvent ? event.data :
         event instanceof ClipboardEvent ? event.clipboardData?.getData("text/plain") :
         event instanceof DragEvent ? event.dataTransfer?.getData("text/plain") : undefined;
-      if (scenario !== "scroll" && received !== (singleCharacter ? "字" : fixture)) {
+      if (scenario !== "scroll" && received !== (inlineEdit ? inserted : fixture)) {
         reject(new Error(`${scenario} 的输入与样本不同`));
         return;
       }
-      if (event.isTrusted !== (scenario !== "paste")) {
+      if (event.isTrusted !== (scenario !== "paste" && scenario !== "paste-paragraph")) {
         reject(new Error(`${scenario} 的输入信任状态不符`));
         return;
       }
@@ -171,7 +218,7 @@ async function prepare(scenario: Scenario, fixture: string) {
   });
   paste = () => {
     const data = new DataTransfer();
-    data.setData("text/plain", fixture);
+    data.setData("text/plain", scenario === "paste-paragraph" ? paragraph : fixture);
     view.contentDOM.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
   };
 }
@@ -190,14 +237,15 @@ async function observe(
   const initialScroll = view.scrollDOM.scrollTop;
   const initialRange = view.visibleRanges[0]?.from ?? 0;
   const editMarker: Partial<Record<Scenario, string>> = {
-    "cursor-insert": "INSERTED_SENTINEL", typing: "字BOLD_", replace: "字OLD_",
+    "cursor-insert": "INSERTED_SENTINEL", typing: "字BOLD_", "paste-paragraph": paragraph, replace: "字OLD_",
   };
   const marker = visibleMarker ?? editMarker[scenario] ?? /(?:SECTION|BOLD|TABLE|LIST|QUOTE|CODE)_\d{5}|FINAL_SENTINEL/;
   let previousFrame: number | undefined;
   // 在确认和解析回调到达时取时。逐帧轮询会把同一帧内发生的两件事记为同时完成。
+  const navigation = scenario === "scroll" || scenario === "find-next";
   const recordRevision = () => {
     const analysis = editor.session.adapter.analysis;
-    if (scenario === "scroll" || editor.revision !== revision || analysis?.targetRevision !== revision ||
+    if (navigation || editor.revision !== revision || analysis?.targetRevision !== revision ||
         editor.session.adapter.text.utf16Length !== expected.length) return;
     const elapsed = performance.now() - start;
     timing.confirmedMs ??= elapsed;
@@ -236,7 +284,7 @@ async function observe(
         }
       }
 
-      if (timing.visibleMs !== undefined && (scenario === "scroll" || timing.parsedMs !== undefined)) {
+      if (timing.visibleMs !== undefined && (navigation || timing.parsedMs !== undefined)) {
         if (editor.value !== expected || editor.confirmedValue !== expected || Number(editor.revision) !== revision) {
           throw new Error(`${scenario} 的最终文本或版本不符`);
         }

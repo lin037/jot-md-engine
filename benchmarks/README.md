@@ -27,6 +27,9 @@ Run the optional 1 MiB replace-all stress cases with `--scenario replace-all-fen
 
 | Scenario | What It Measures |
 | --- | --- |
+| **Paste a paragraph** | Pastes short text into an existing paragraph and verifies the visible edit and confirmed document. |
+| **Find next** | Sets a query at the top and reveals its unique match at the end, checking the exact selection. |
+| **Undo and redo** | Separately times each command after an inline edit and checks the visible text, document and revision. Setup edits are outside the measurement. |
 | **Open** | Creates the editor with the initial ~1 MiB document and measures from editor creation. |
 | **Single character insert** | Types one character into an already-open, fully parsed ~1 MiB document. |
 | **Replace a character** | Selects and replaces one character near the start of a parsed document. |

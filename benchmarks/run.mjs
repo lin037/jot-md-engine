@@ -19,7 +19,7 @@ const { values } = parseArgs({
     "no-build": { type: "boolean" },
   },
 });
-const scenarios = ["open", "typing", "replace", "scroll", "insert", "paste", "drop", "cursor-insert"];
+const scenarios = ["open", "typing", "replace", "scroll", "paste-paragraph", "find-next", "undo", "redo", "insert", "paste", "drop", "cursor-insert"];
 const stressScenarios = ["replace-all-fences", "replace-all-text", "replace-all-dense"];
 const supported = [...scenarios, ...stressScenarios];
 if (values.scenario !== undefined) assert(supported.includes(values.scenario), `--scenario must be one of ${supported.join(", ")}`);
@@ -90,7 +90,9 @@ try {
         await client.command("Input.insertText", { text: name === "insert" ? source : "字" });
       } else if (name === "scroll") {
         await client.command("Input.dispatchMouseEvent", { type: "mouseWheel", x: 440, y: 300, deltaX: 0, deltaY: 4800 });
-      } else if (name === "paste") {
+      } else if (["find-next", "undo", "redo"].includes(name)) {
+        await client.evaluate("benchmark.runCommand();true");
+      } else if (name === "paste" || name === "paste-paragraph") {
         await client.evaluate("benchmark.paste();true");
       } else if (stressScenarios.includes(name)) {
         await client.evaluate("benchmark.replaceAll();true");
