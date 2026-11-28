@@ -164,11 +164,12 @@ export const livePreviewTheme = EditorView.baseTheme({
     borderBlock: "0",
     lineHeight: "0",
   },
-  // Clear CodeMirror's default line inset inside source shells. Quote shells
-  // use the more specific per-line rules above for confirmed nesting; their
-  // opening and closing padding is counted only where a quote starts or ends.
-  ".cm-content.jot-live-preview-content .jot-live-preview-source-block-shell > .cm-line": {
+  // Clear CodeMirror's inset inside source shells. List lines already own
+  // their horizontal layout, including the marker column and nesting.
+  ".cm-content.jot-live-preview-content .jot-live-preview-source-block-shell > .cm-line:where(:not(.jot-live-preview-list-item))": {
     paddingInline: "0",
+  },
+  ".cm-content.jot-live-preview-content .jot-live-preview-source-block-shell > .cm-line": {
     paddingBlock: "0",
     borderBlock: "0",
   },

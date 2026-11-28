@@ -325,11 +325,10 @@ export function planLivePreview(input: LivePreviewPlanInput): LivePreviewPlan {
         !added && candidate.kind === "image" && !sourceCompanionIds.has(candidate.id) && activeSourceRange !== undefined &&
         editingImage(candidate.sourceRange)
       ) {
-        const position = clamp(
-          Number(node.sourceRange.to),
-          0,
-          input.source.length,
-        );
+        // A quote or a continued list can span several physical lines.
+        // Keep the preview on the image's line so it inherits that line's layout.
+        const imageLine = physicalSourceLines(input.source, candidate.sourceRange);
+        const position = clamp(Math.min(Number(node.sourceRange.to), imageLine.to), 0, input.source.length);
         if (
           input.visibleRange === undefined ||
           (input.visibleRange.from <= position && position <= input.visibleRange.to)
