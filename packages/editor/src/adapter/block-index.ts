@@ -7,6 +7,7 @@ import type {
 } from "@jot-md/editor-protocol";
 
 import { range } from "./text-model.js";
+import { EditRangeIndex } from "./edit-batch.js";
 import { spliceItems } from "./array-splice.js";
 
 export interface IndexedBlock extends BlockMetadata {
@@ -67,25 +68,17 @@ export class SyntaxBlockIndex {
     // Map each root once. Edits strictly before it contribute only a net shift.
     // Intersections still use the original revision in reverse order, including
     // insertions at a shared boundary that invalidate both neighboring roots.
-    const deltas = [0];
-    for (const { range, insert } of edits) {
-      deltas.push(deltas[deltas.length - 1]! + insert.length - (range.to - range.from));
-    }
+    const changes = new EditRangeIndex(edits);
     this.#blocks = this.#blocks.map(block => {
       if (block.kind === "unloaded") return block;
       let from = Number(block.sourceRange.from), to = Number(block.sourceRange.to);
-      let low = 0, high = edits.length;
-      while (low < high) {
-        const mid = (low + high) >>> 1;
-        if (edits[mid]!.range.to < from) low = mid + 1;
-        else high = mid;
-      }
+      const low = changes.firstEndingAtOrAfter(from);
       let end = low;
       while (end < edits.length && edits[end]!.range.from <= to) end++;
       let dirty = block.dirty;
       for (let i = end - 1; i >= low; i--) {
         const edit = edits[i]!.range;
-        const delta = deltas[i + 1]! - deltas[i]!;
+        const delta = changes.deltaBefore(i + 1) - changes.deltaBefore(i);
         if (edit.from === edit.to && from <= edit.from && edit.from <= to) {
           to += delta;
           dirty = true;
@@ -97,8 +90,8 @@ export class SyntaxBlockIndex {
           dirty = true;
         }
       }
-      from += deltas[low]!;
-      to += deltas[low]!;
+      from += changes.deltaBefore(low);
+      to += changes.deltaBefore(low);
       return from === block.sourceRange.from && to === block.sourceRange.to && dirty === block.dirty
         ? block : { ...block, sourceRange: range(from, to), dirty };
     });

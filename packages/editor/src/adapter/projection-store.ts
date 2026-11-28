@@ -8,8 +8,8 @@ import type {
   Revision,
   SyntaxPatchSummary,
   TextEdit,
-  TextRange,
 } from "@jot-md/editor-protocol";
+import { EditRangeIndex } from "./edit-batch.js";
 import { spliceSlots } from "./array-splice.js";
 
 interface ProjectionWindow {
@@ -292,13 +292,15 @@ export class ProjectionStore {
    * 由 Rust 在提交后计算，从而消除后续的 projection 往返。
    */
   slicesTouchingEdits(edits: readonly TextEdit[]): readonly ProjectionSlice[] {
+    if (this.#windows.size === 0 || edits.length === 0) return [];
+    const changes = new EditRangeIndex(edits);
     const slices: ProjectionSlice[] = [];
     for (const window of this.#windows.values()) {
       const touched: number[] = [];
       window.nodes.forEach((node, index) => {
         if (
           node !== undefined &&
-          edits.some((edit) => rangeTouchesEdit(node.sourceRange, edit))
+          changes.touches(node.sourceRange)
         ) {
           touched.push(index);
         }
@@ -336,14 +338,16 @@ export class ProjectionStore {
   }
 
   #carryAcrossEdits(edits: readonly TextEdit[]): void {
+    if (this.#windows.size === 0) return;
+    const changes = new EditRangeIndex(edits);
     for (const window of this.#windows.values()) {
       for (let index = 0; index < window.nodes.length; index += 1) {
         const node = window.nodes[index];
         if (node === undefined) continue;
-        if (edits.some((edit) => rangeTouchesEdit(node.sourceRange, edit))) {
+        if (changes.touches(node.sourceRange)) {
           window.nodes[index] = undefined;
         } else {
-          window.nodes[index] = mapRenderNode(node, edits);
+          window.nodes[index] = mapRenderNode(node, changes);
         }
       }
     }
@@ -396,62 +400,27 @@ function indexSlice(
   };
 }
 
-function rangeTouchesEdit(range: TextRange, edit: TextEdit): boolean {
-  const from = Number(edit.range.from);
-  const to = Number(edit.range.to);
-  if (from === to) {
-    return Number(range.from) <= from && from <= Number(range.to);
-  }
-  return Number(range.from) < to && from < Number(range.to);
-}
-
-function mapRenderNode(node: RenderNode, edits: readonly TextEdit[]): RenderNode {
+function mapRenderNode(node: RenderNode, changes: EditRangeIndex): RenderNode {
   return {
     ...node,
-    sourceRange: mapRange(node.sourceRange, edits),
+    sourceRange: changes.mapRange(node.sourceRange),
     attributes: node.attributes.map((attribute): RenderAttribute => ({
       ...attribute,
-      value: mapRenderValue(attribute.value, edits),
+      value: mapRenderValue(attribute.value, changes),
     })),
     content: node.content.type === "structured"
       ? {
           type: "structured",
-          children: node.content.children.map((child) => mapRenderNode(child, edits)),
+          children: node.content.children.map((child) => mapRenderNode(child, changes)),
         }
       : node.content,
   };
 }
 
-function mapRenderValue(value: RenderValue, edits: readonly TextEdit[]): RenderValue {
+function mapRenderValue(value: RenderValue, changes: EditRangeIndex): RenderValue {
   return value.type === "range"
-    ? { type: "range", value: mapRange(value.value, edits) }
+    ? { type: "range", value: changes.mapRange(value.value) }
     : value;
-}
-
-function mapRange(range: TextRange, edits: readonly TextEdit[]): TextRange {
-  return {
-    from: mapBoundary(Number(range.from), edits, 1) as TextRange["from"],
-    to: mapBoundary(Number(range.to), edits, -1) as TextRange["to"],
-  };
-}
-
-function mapBoundary(
-  offset: number,
-  edits: readonly TextEdit[],
-  association: -1 | 1,
-): number {
-  let delta = 0;
-  for (const edit of edits) {
-    const from = Number(edit.range.from);
-    const to = Number(edit.range.to);
-    if (offset < from || (offset === from && association < 0)) break;
-    if (offset > to || (offset === to && association > 0)) {
-      delta += edit.insert.length - (to - from);
-      continue;
-    }
-    return from + delta + (association > 0 ? edit.insert.length : 0);
-  }
-  return offset + delta;
 }
 
 /** Shallow requests from one host must not erase another host's confirmed detail. */

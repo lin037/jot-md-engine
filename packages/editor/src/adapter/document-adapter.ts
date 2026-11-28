@@ -27,6 +27,7 @@ import {
   type EditorViewport,
 } from "./analysis-policy.js";
 import { SyntaxBlockIndex } from "./block-index.js";
+import { replacesMostDocument } from "./edit-batch.js";
 import { ProjectionStore } from "./projection-store.js";
 import {
   normalizeInsertedText,
@@ -342,8 +343,6 @@ export class EditorDocumentAdapter {
       if (body.patch.baseRevision !== this.#revision) {
         throw new Error("transaction response does not extend the local revision");
       }
-      const previousLength = this.text.utf16Length;
-      const resetProjection = replacesMostDocument(transaction.edits, previousLength);
       const lineChanges = this.text.apply(transaction.edits);
       this.blocks.applyTextEdits(transaction.edits);
       if (body.patch.syntax !== undefined) this.blocks.applySyntaxPatch(body.patch.syntax);
@@ -353,7 +352,7 @@ export class EditorDocumentAdapter {
         body.patch.revision,
         transaction.edits,
         body.patch.syntax,
-        { reset: resetProjection },
+        { reset: replacesMostDocument(transaction.edits, this.text.utf16Length) },
       );
       this.#pending.delete(body.patch.transactionId);
       this.#pendingByRequest.delete(response.requestId);
@@ -455,13 +454,4 @@ export class EditorDocumentAdapter {
       throw new Error("response belongs to another editor document instance");
     }
   }
-}
-
-function replacesMostDocument(edits: readonly TextEdit[], oldLength: number): boolean {
-  if (oldLength <= 0) return false;
-  const removed = edits.reduce(
-    (total, edit) => total + Number(edit.range.to) - Number(edit.range.from),
-    0,
-  );
-  return removed / oldLength >= 0.6;
 }

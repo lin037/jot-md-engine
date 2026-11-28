@@ -64,24 +64,7 @@ export function renderNodeShapeKey(node: RenderNode): string {
     : node.kind;
 }
 
-export function replacesMostDocument(
-  edits: readonly TextEdit[],
-  newLength: number,
-): boolean {
-  const delta = edits.reduce(
-    (sum, edit) =>
-      sum + edit.insert.length -
-      (Number(edit.range.to) - Number(edit.range.from)),
-    0,
-  );
-  const oldLength = Math.max(0, newLength - delta);
-  if (oldLength === 0) return false;
-  const removed = edits.reduce(
-    (sum, edit) => sum + Number(edit.range.to) - Number(edit.range.from),
-    0,
-  );
-  return removed / oldLength >= 0.6;
-}
+export { replacesMostDocument } from "../../adapter/edit-batch.js";
 
 type RtlScrollType = "negative" | "default" | "reverse";
 const rtlScrollTypes = new WeakMap<Document, RtlScrollType>();
