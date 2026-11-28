@@ -1,0 +1,69 @@
+name: Deploy Demo
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - README.md
+      - README.zh-CN.md
+      - CONTRIBUTING.md
+      - CONTRIBUTING.zh-CN.md
+      - docs/**
+      - .github/ISSUE_TEMPLATE/*.md
+      - .github/pull_request_template.md
+      - apps/*/README*.md
+      - benchmarks/README*.md
+      - crates/*/README*.md
+      - packages/*/README*.md
+
+permissions:
+  contents: read
+
+concurrency: github-pages
+
+jobs:
+  build:
+    name: Build Demo
+    if: vars.DEPLOY_DEMO == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-web
+      - run: pnpm run demo:build
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: dist/demo
+
+  pages:
+    name: Deploy Demo
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url || steps.receipt.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        id: deploy
+        continue-on-error: true
+      - name: Confirm the deployment if its response was lost
+        id: receipt
+        if: steps.deploy.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for delay in 0 5 10; do
+            sleep "$delay"
+            if status=$(gh api "repos/$GITHUB_REPOSITORY/pages/deployments/$GITHUB_SHA" --jq .status) && [[ "$status" == "succeed" ]]; then
+              url=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .html_url)
+              echo "page_url=$url" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          exit 1

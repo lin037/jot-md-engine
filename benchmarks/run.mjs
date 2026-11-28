@@ -19,14 +19,17 @@ const { values } = parseArgs({
     "no-build": { type: "boolean" },
   },
 });
-const scenarios = ["open", "typing", "scroll", "insert", "paste", "drop", "cursor-insert"];
-if (values.scenario !== undefined) assert(scenarios.includes(values.scenario), `--scenario must be one of ${scenarios.join(", ")}`);
+const scenarios = ["open", "typing", "replace", "scroll", "paste-paragraph", "find-next", "undo", "redo", "insert", "paste", "drop", "cursor-insert"];
+const stressScenarios = ["replace-all-fences", "replace-all-text", "replace-all-dense"];
+const supported = [...scenarios, ...stressScenarios];
+if (values.scenario !== undefined) assert(supported.includes(values.scenario), `--scenario must be one of ${supported.join(", ")}`);
 const samples = Number(values.samples);
 const bytes = Number(values.bytes);
 assert(Number.isSafeInteger(samples) && samples > 0, "--samples must be a positive integer");
 assert(Number.isSafeInteger(bytes) && bytes >= 16384, "--bytes must be at least 16384");
 const output = resolve(values.output);
-const { source, sections } = largeInputFixture(bytes);
+const { source, sections } = values.scenario === "replace-all-dense"
+  ? { source: "a".repeat(bytes), sections: 0 } : largeInputFixture(bytes);
 if (!values["no-build"]) {
   const build = spawnSync("pnpm", ["run", "benchmark:build"], { stdio: "inherit", shell: process.platform === "win32" });
   if (build.error) throw build.error;
@@ -83,12 +86,16 @@ try {
     for (let i = 0; i <= samples; i++) {
       await client.evaluate(`benchmark.prepare(${JSON.stringify(name)}, fixture)`);
       const start = performance.now();
-      if (name === "insert" || name === "typing") {
-        await client.command("Input.insertText", { text: name === "typing" ? "字" : source });
+      if (name === "insert" || name === "typing" || name === "replace") {
+        await client.command("Input.insertText", { text: name === "insert" ? source : "字" });
       } else if (name === "scroll") {
         await client.command("Input.dispatchMouseEvent", { type: "mouseWheel", x: 440, y: 300, deltaX: 0, deltaY: 4800 });
-      } else if (name === "paste") {
+      } else if (["find-next", "undo", "redo"].includes(name)) {
+        await client.evaluate("benchmark.runCommand();true");
+      } else if (name === "paste" || name === "paste-paragraph") {
         await client.evaluate("benchmark.paste();true");
+      } else if (stressScenarios.includes(name)) {
+        await client.evaluate("benchmark.replaceAll();true");
       } else if (name === "cursor-insert") {
         await client.evaluate("benchmark.insertAtCursor();true");
       } else if (name === "drop") {

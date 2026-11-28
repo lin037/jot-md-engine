@@ -27,9 +27,11 @@ import {
   type EditorViewport,
 } from "./analysis-policy.js";
 import { SyntaxBlockIndex } from "./block-index.js";
+import { replacesMostDocument } from "./edit-batch.js";
 import { ProjectionStore } from "./projection-store.js";
 import {
   normalizeInsertedText,
+  range,
   Utf16TextModel,
   validateEdits,
   type SourceLinePreview,
@@ -164,6 +166,16 @@ export class EditorDocumentAdapter {
       this.text.utf16Length,
     );
     const id = `${String(this.#documentId)}:tx${++this.#transactionSequence}` as TransactionId;
+    const analysis = createAnalysisRequest(
+      {
+        edits,
+        viewport: intent.viewport,
+        mode: this.#mode,
+        documentUtf16Length: nextLength,
+        sourceBeforeEdits: this.text.text,
+      },
+      this.#budgets,
+    );
     const transaction: DocumentTransaction = {
       id,
       baseRevision: this.#revision,
@@ -176,16 +188,7 @@ export class EditorDocumentAdapter {
       ...(intent.selectionAfter === undefined ? {} : { selectionAfter: intent.selectionAfter }),
       history: intent.history ?? { type: "record" },
       ...(intent.metadata === undefined ? {} : { metadata: intent.metadata }),
-      analysis: createAnalysisRequest(
-        {
-          edits,
-          viewport: intent.viewport,
-          mode: this.#mode,
-          documentUtf16Length: nextLength,
-          sourceBeforeEdits: this.text.text,
-        },
-        this.#budgets,
-      ),
+      analysis,
     };
     this.#pending.set(id, transaction);
     // A multi-row edit inside one confirmed table invalidates the root and its
@@ -195,31 +198,29 @@ export class EditorDocumentAdapter {
     const ownerIndex = this.blocks.batchOwner(edits);
     const owner = ownerIndex === undefined ? undefined : this.blocks.blocks[ownerIndex];
     const tableBatch = owner?.kind === "table";
-    const cachedSlices = tableBatch ? [] : this.projection.slicesTouchingEdits(edits);
-    let editDelta = 0;
-    const rootRefreshSlices = (tableBatch ? edits.slice(0, 1) : edits).map((edit): ProjectionSlice => {
-      const from = Number(edit.range.from) + editDelta;
-      const to = from + edit.insert.length;
-      editDelta += edit.insert.length -
-        (Number(edit.range.to) - Number(edit.range.from));
-      return {
-        parentId: "0",
-        axis: "syntax-children",
-        window: {
-          type: "around-range",
-          range: {
-            from: from as import("@jot-md/editor-protocol").Utf16Offset,
-            to: to as import("@jot-md/editor-protocol").Utf16Offset,
-          },
-          // Markdown block boundaries may include a separator blank line. Two
-          // neighbors are enough to retain the preceding/following semantic block
-          // without materializing a document-wide root projection.
-          before: TRANSACTION_ROOT_NEIGHBORS,
-          after: TRANSACTION_ROOT_NEIGHBORS,
-        },
-        maxDepth: 0,
-      };
-    });
+    const { priorityRanges, visibleRanges } = analysis.priority;
+    const viewportOnly = priorityRanges.length === 0;
+    const cachedSlices = tableBatch || viewportOnly ? [] : this.projection.slicesTouchingEdits(edits);
+    let roots = viewportOnly ? visibleRanges : priorityRanges;
+    if (tableBatch || (roots.length === 0 && edits.length > 0)) {
+      const first = edits[0]!;
+      const firstChanged = range(Number(first.range.from), Number(first.range.from) + first.insert.length);
+      roots = [tableBatch ? firstChanged : analysis.priority.activeRange ?? firstChanged];
+    }
+    const rootRefreshSlices = roots.map((sourceRange): ProjectionSlice => ({
+      parentId: "0",
+      axis: "syntax-children",
+      window: {
+        type: "around-range",
+        range: sourceRange,
+        // Markdown block boundaries may include a separator blank line. Two
+        // neighbors are enough to retain the preceding/following semantic block
+        // without materializing a document-wide root projection.
+        before: TRANSACTION_ROOT_NEIGHBORS,
+        after: TRANSACTION_ROOT_NEIGHBORS,
+      },
+      maxDepth: 0,
+    }));
     // 语法重解析可以替换编辑点两侧的根块。旧 root index slice 即使仍在 cache
     // 中也不代表邻接槽位有效，因此用有限邻域刷新 root；嵌套 row/cell slice
     // 仍保留，避免把 table 详情升级为全表投影。
@@ -342,8 +343,6 @@ export class EditorDocumentAdapter {
       if (body.patch.baseRevision !== this.#revision) {
         throw new Error("transaction response does not extend the local revision");
       }
-      const previousLength = this.text.utf16Length;
-      const resetProjection = replacesMostDocument(transaction.edits, previousLength);
       const lineChanges = this.text.apply(transaction.edits);
       this.blocks.applyTextEdits(transaction.edits);
       if (body.patch.syntax !== undefined) this.blocks.applySyntaxPatch(body.patch.syntax);
@@ -353,7 +352,7 @@ export class EditorDocumentAdapter {
         body.patch.revision,
         transaction.edits,
         body.patch.syntax,
-        { reset: resetProjection },
+        { reset: replacesMostDocument(transaction.edits, this.text.utf16Length) },
       );
       this.#pending.delete(body.patch.transactionId);
       this.#pendingByRequest.delete(response.requestId);
@@ -455,13 +454,4 @@ export class EditorDocumentAdapter {
       throw new Error("response belongs to another editor document instance");
     }
   }
-}
-
-function replacesMostDocument(edits: readonly TextEdit[], oldLength: number): boolean {
-  if (oldLength <= 0) return false;
-  const removed = edits.reduce(
-    (total, edit) => total + Number(edit.range.to) - Number(edit.range.from),
-    0,
-  );
-  return removed / oldLength >= 0.6;
 }

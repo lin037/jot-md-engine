@@ -21,13 +21,15 @@ pnpm run package:verify
 
 ## 发布到 npm 与 GitHub Release
 
-1. 在 `packages/editor/package.json` 更新版本号。合入 `main` 后，从该提交通过的 CI 下载 `jot-editor-package`，核对归档中的包名和版本。
-2. 用 `npm publish` 发布核对过的 `.tgz`，加上 `--access public`。若用 npm 的 Trusted Publisher，工作流文件名填 `publish-npm.yml`，环境填 `npm`，勾选允许直接发布。从 `main` 运行 **Actions → Publish npm package**。
-3. 用 `npm view @jot-md/editor@<version> dist.integrity` 核对 npm 上的归档，再把验证过的同一份归档附到对应的 GitHub Release。
+1. 如果公开文档或基准结果有变化，先更新对应文档，再更新 `packages/editor/package.json` 的版本号，一并提交 PR。同仓库分支的代码 PR 会执行完整检查并保留验证过的包。可以先合并多个 PR，再选择发版。
+2. 准备发版时，在 **Actions → Publish release** 选择 `main` 并输入版本号。工作流会复用与当前文件完全一致、且已经通过检查的包。文件有变化或包已不可用时，才对这次选中的 `main` 提交跑完整检查并使用这次产出的包。
+3. 工作流会把核对过的 `.tgz` 发布到 npm，并把同一份文件放到对应的 GitHub Release。如果发布中途失败，在这次发布记录里重跑失败的任务即可。
+
+首次使用前配置 [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/)。工作流文件名填 `publish-npm.yml`，环境填 `npm`，勾选允许直接发布。
 
 ## 部署在线 Demo
 
-若需在每次合入 `main` 后自动部署在线 Demo 到 GitHub Pages：
+相关改动合入 `main` 后，由独立的 **Deploy Demo** 工作流构建并部署到 GitHub Pages。
 
 1. 在 **Settings → Pages** 中将 Source 设为 **GitHub Actions**。
 2. 在 **Settings → Secrets and variables → Actions → Variables** 中添加变量 `DEPLOY_DEMO=true`（建议将 `github-pages` 环境限制为仅允许 `main` 分支）。

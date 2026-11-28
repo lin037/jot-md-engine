@@ -139,6 +139,90 @@ export async function runPaddingGeometryScenarios({c,results}) {
   for(const type of ['mousePressed','mouseReleased'])await c.command('Input.dispatchMouseEvent',{type,button:'left',clickCount:1,modifiers:8,x:tabBefore.startX,y:tabBefore.y});
   const tabShift=await c.evaluate(`(()=>{const s=paddingEditor.input.view.state.selection.main;return{anchor:s.anchor,head:s.head}})()`);
   assert.deepEqual(tabShift,{anchor:tabBefore.to,head:tabBefore.from},'Shift-click selects exactly the tab character');
+
+  const listCases=[
+   {name:'bullet', lines:['- ITEM  ', '  FOLLOW'], insertAfter:'ITEM'},
+   {name:'nested', lines:['- Parent', '  - ITEM  ', '    FOLLOW'], insertAfter:'ITEM'},
+   {name:'ordered', lines:['10. ITEM  ', '    FOLLOW'], insertAfter:'ITEM'},
+   {name:'task', lines:['- [ ] ITEM  ', '  FOLLOW'], insertAfter:'ITEM'},
+   {name:'continuation', lines:['- Parent', '  - ITEM  ', '    FOLLOW  ', '    '], insertAfter:'    '},
+   {name:'quoted', lines:['> - ITEM', '> unrelated'], insertAfter:'ITEM'},
+  ];
+  const lists=await c.evaluate(`(async(cases,destination)=>{
+   const editor=paddingEditor;
+   const view=editor.input.view;
+   document.querySelector('#padding-fixture').style.width='360px';
+   const read=()=>{
+    const rows=[...view.contentDOM.querySelectorAll('.cm-line')];
+    const image=view.contentDOM.querySelector('.jot-image');
+    const wordLeft=label=>{
+     for(const row of rows){
+      const walker=document.createTreeWalker(row,NodeFilter.SHOW_TEXT);
+      let text;
+      while((text=walker.nextNode())){
+       const start=text.data.indexOf(label);
+       if(start<0)continue;
+       const range=new Range();
+       range.setStart(text,start);
+       range.setEnd(text,start+1);
+       return range.getBoundingClientRect().left;
+      }
+     }
+     return null;
+    };
+    return {
+     item:wordLeft('ITEM'), follow:wordLeft('FOLLOW'),
+     imageLeft:image?.getBoundingClientRect().left??null,
+     imageLine:image?.closest('.cm-line')?.textContent??null,
+     companion:image?.classList.contains('jot-live-preview-widget--source-companion')??false,
+    };
+   };
+   const focus=async offset=>{
+    editor.input.setSelection(offset);
+    editor.focus();
+    await editor.settled();
+   };
+   const results=[];
+   for(const {name,lines,insertAfter} of cases){
+    const markdown='outside\\n\\n'+lines.join('\\n')+'\\n\\nend';
+    const insertAt=markdown.lastIndexOf(insertAfter)+insertAfter.length;
+    editor.setValue(markdown);
+    await editor.settled();
+    await focus(insertAt);
+    const before=read();
+    const inserted=editor.insertImage({destination,alt:'layout'});
+    await editor.settled();
+    const after=read();
+    await focus(insertAt+3);
+    const editing=read();
+    await focus(0);
+    const inactive=read();
+    const expected=markdown.slice(0,insertAt)+'![layout]('+destination+')'+markdown.slice(insertAt);
+    results.push({name,sourceUnchanged:inserted&&editor.confirmedValue===expected,before,after,editing,inactive});
+   }
+   return results;
+  })(${JSON.stringify(listCases)},${JSON.stringify(image)})`);
+  for(const {name,sourceUnchanged,before,after,editing,inactive} of lists){
+   assert(sourceUnchanged,`${name}: insertion preserves the Markdown list syntax`);
+   assert(editing.companion,`${name}: editing exposes the image companion`);
+   if(name==='quoted'){
+    assert(editing.imageLine?.includes('ITEM'),`the quoted image stays on its list line: ${JSON.stringify(editing)}`);
+   }
+   for(const state of [after,editing,inactive]){
+    assert(Number.isFinite(state.item)&&Math.abs(state.item-before.item)<=1,
+      `${name}: list text keeps its initial column: ${JSON.stringify({before,state})}`);
+    if(before.follow!==null){
+     assert(Number.isFinite(state.follow)&&Math.abs(state.follow-before.follow)<=1,
+       `${name}: continuation keeps its initial column: ${JSON.stringify({before,state})}`);
+    }
+   }
+   if(name==='continuation'||name==='quoted'){
+    assert(Number.isFinite(editing.imageLeft)&&Math.abs(editing.imageLeft-before.item)<=1,
+      `${name}: image companion stays in the list content column: ${JSON.stringify({before,editing})}`);
+   }
+  }
+  results.push({case:'component-list-image-alignment',lists});
+  assert.deepEqual(await c.evaluate('paddingErrors'),[]);
  } finally {
   await c.evaluate(`(()=>{paddingEditor.dispose();paddingWorker.terminate();document.querySelector('#padding-fixture').remove();document.querySelector('#padding-fixture-style').remove();document.querySelector('#integration').style.display=''})()`);
  }

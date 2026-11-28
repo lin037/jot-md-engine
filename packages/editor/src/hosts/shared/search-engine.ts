@@ -304,7 +304,7 @@ function compilePrefilter(query: SearchQuery): CompiledPrefilter {
   const cached = prefilterCache.get(query);
   if (cached !== undefined) return cached;
   let compiled: CompiledPrefilter;
-  const unquoted = unquoteSearch(query);
+  const unquoted = unquoteSearchText(query, query.search);
   if (!query.valid || query.regexp || unquoted.length === 0) {
     compiled = { eligible: false, caseSensitive: query.caseSensitive, normNeedle: "", overlap: 32 };
   } else {
@@ -344,10 +344,10 @@ function alignSliceEnd(source: string, offset: number): number {
   return previous >= 0xd800 && previous <= 0xdbff ? offset + 1 : offset;
 }
 
-function unquoteSearch(query: SearchQuery): string {
+export function unquoteSearchText(query: SearchQuery, text: string): string {
   return query.literal
-    ? query.search
-    : query.search.replace(/\\([nrt\\])/gu, (_match, ch: string) =>
+    ? text
+    : text.replace(/\\([nrt\\])/gu, (_match, ch: string) =>
         ch === "n" ? "\n" : ch === "r" ? "\r" : ch === "t" ? "\t" : "\\");
 }
 

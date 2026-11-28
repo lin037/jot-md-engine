@@ -108,7 +108,8 @@ export class LivePreviewWidget extends WidgetType {
   get estimatedHeight(): number {
     if (!this.#descriptor.block) return -1;
     if (this.#descriptor.inPlaceUpdate === true) {
-      const measured = inPlaceMeasuredHeights.get(this.#runtime)?.get(inPlaceGeometryKey(this.#descriptor));
+      const measured = inPlaceMeasuredHeights.get(this.#runtime)?.get(inPlaceGeometryKey(this.#descriptor)) ??
+        measuredLivePreviewHeight(this.#runtime, this.#descriptor.node);
       if (measured !== undefined) return measured;
     }
     return this.#descriptor.estimatedHeight ?? -1;
@@ -152,6 +153,7 @@ export class LivePreviewWidget extends WidgetType {
         this.#descriptor,
       );
       element.dataset["jotLiveInPlaceId"] = this.#descriptor.node.id;
+      this.#reserveDeferredExtent(element);
     }
     element.classList.add(
       "jot-live-preview-widget",
@@ -279,6 +281,7 @@ export class LivePreviewWidget extends WidgetType {
         this.#descriptor,
       );
       dom.dataset["jotLiveInPlaceId"] = this.#descriptor.node.id;
+      this.#reserveDeferredExtent(dom);
     }
     dom.classList.toggle("jot-live-preview-widget--selected", this.#descriptor.selected === true);
     dom.classList.toggle(
@@ -324,11 +327,18 @@ export class LivePreviewWidget extends WidgetType {
     element.style.minHeight = `${height}px`;
   }
 
+  #reserveDeferredExtent(element: HTMLElement): void {
+    // CodeMirror can measure a connected shell before RenderRuntime mounts its
+    // own row window. Reserve the same extent the height map already knows.
+    const height = this.estimatedHeight;
+    element.style.setProperty("--jot-live-preview-deferred-height", `${Math.max(0, height)}px`);
+  }
+
   #observeGeometry(element: HTMLElement, view: EditorView): void {
     const ResizeObserverType = element.ownerDocument.defaultView?.ResizeObserver;
     const requestMeasure = () => {
       const current = widgetOwners.get(element);
-      if (current === undefined) return;
+      if (current === undefined || (current.#descriptor.inPlaceUpdate === true && !element.hasChildNodes())) return;
       // Inline image/math widgets replace source inside a real CodeMirror line.
       // The line shell also owns its root-block padding/boundary, so caching only
       // the child element under-reserves the active source shell (5px with the
@@ -384,6 +394,10 @@ const measuredHeights = new WeakMap<HTMLElement, number>();
 const inPlaceMeasuredHeights = new WeakMap<RenderRuntime, Map<string, number>>();
 const renderedHeights = new WeakMap<RenderRuntime, Map<string, number>>();
 
+export function measuredLivePreviewHeight(runtime: RenderRuntime, node: Pick<RenderNode, "id" | "kind" | "contentVersion">): number | undefined {
+  return renderedHeights.get(runtime)?.get(renderedHeightKey(node));
+}
+
 /** Last mounted browser geometry used only for the immediate source reveal. */
 export function measuredLivePreviewSubtreeHeight(
   runtime: RenderRuntime,
@@ -422,7 +436,7 @@ function rememberRenderedHeight(
   }
 }
 
-function renderedHeightKey(node: RenderNode): string {
+function renderedHeightKey(node: Pick<RenderNode, "id" | "kind" | "contentVersion">): string {
   return `${node.id}:${node.kind}:${node.contentVersion}`;
 }
 

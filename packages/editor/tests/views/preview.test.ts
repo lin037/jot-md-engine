@@ -478,6 +478,51 @@ function renderNodeAt(id: string, from: number): RenderNode {
   };
 }
 
+function cached_ranges_keep_boundary_association(): void {
+  const store = new ProjectionStore();
+  const kept: RenderNode = { ...renderNodeAt("kept", 6),
+    attributes: [{ name: "related", value: { type: "range", value: range(5, 9) } }],
+    content: { type: "structured", children: [renderNodeAt("child", 6)] } };
+  store.apply({ documentId: DOCUMENT, documentRevision: 0 as Revision, viewRevision: 0,
+    operations: [{ type: "replace-children", parentId: "0", axis: "syntax-children", from: 0,
+      removeCount: 0, totalChildren: 3, inserted: [renderNodeAt("touched", 4), kept, renderNodeAt("suffix", 10)] }] });
+  const edits = [
+    { range: range(1, 3), insert: "😀" },
+    { range: range(5, 5), insert: "a" }, { range: range(5, 5), insert: "b" },
+    { range: range(5, 6), insert: "long" }, { range: range(7, 10), insert: "" },
+  ];
+  const slices = store.slicesTouchingEdits(edits);
+  equal(slices.length, 1);
+  equal(JSON.stringify(slices[0]?.window), JSON.stringify({ type: "index", from: 0, toExclusive: 1 }));
+  store.advanceRevision(1 as Revision, edits);
+  equal(store.nodeAt("0", "syntax-children", 0), undefined);
+  const mapped = store.nodeAt("0", "syntax-children", 1);
+  equal(JSON.stringify(mapped?.sourceRange), JSON.stringify(range(11, 12)));
+  equal(JSON.stringify(mapped?.attributes[0]?.value), JSON.stringify({ type: "range", value: range(11, 12) }));
+  assert(mapped?.content.type === "structured");
+  equal(JSON.stringify(mapped.content.children[0]?.sourceRange), JSON.stringify(range(11, 12)));
+  equal(store.nodeAt("0", "syntax-children", 2)?.sourceRange.from, 12 as Utf16Offset);
+}
+
+function cached_nodes_use_indexed_batch_offsets(): void {
+  const store = new ProjectionStore();
+  const count = 256;
+  let rangeReads = 0;
+  const edits = Array.from({ length: count }, (_, i) => {
+    const position = range(i * 8, i * 8 + 1);
+    return { get range() { rangeReads++; return position; }, insert: "😀" };
+  });
+  const nodes = edits.map((_, i) => renderNodeAt(String(i), i * 8 + 2));
+  store.apply({ documentId: DOCUMENT, documentRevision: 0 as Revision, viewRevision: 0,
+    operations: [{ type: "replace-children", parentId: "0", axis: "syntax-children",
+      from: 0, removeCount: 0, totalChildren: count, inserted: nodes }] });
+  store.advanceRevision(1 as Revision, edits);
+  for (let i = 0; i < count; i++) {
+    equal(store.nodeAt("0", "syntax-children", i)?.sourceRange.from, (i * 9 + 3) as Utf16Offset);
+  }
+  assert(rangeReads < count * 64, `cached nodes repeatedly scanned the edit batch (${rangeReads} range reads)`);
+}
+
 function shallow_projection_does_not_erase_confirmed_detail(): void {
   const store = new ProjectionStore();
   let version = 0;
@@ -521,6 +566,8 @@ const tests: ReadonlyArray<readonly [string, () => void | Promise<void>]> = [
   ["source-line splices preserve the unchanged suffix", source_line_splices_keep_the_unaffected_suffix],
   ["broad replacements reset stale virtual measurements", broad_replacements_reset_stale_virtual_measurements],
   ["viewport anchors map through exact transaction edits", viewport_anchor_maps_through_exact_transaction_edits],
+  ["cached ranges keep their boundary association", cached_ranges_keep_boundary_association],
+  ["cached nodes use indexed batch offsets", cached_nodes_use_indexed_batch_offsets],
   ["shallow projection preserves confirmed detail", shallow_projection_does_not_erase_confirmed_detail],
 ];
 

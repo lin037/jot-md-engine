@@ -5,6 +5,9 @@ import type { VirtualAxis } from "../../core/virtual/virtual-axis.js";
 import type { TableLayoutController, TableLayoutOptions } from "./layout.js";
 import type { TableCommandExecutor } from "./commands.js";
 
+export type TableRowReader = (tableStart: number, rowOffset: number) =>
+  { readonly from: number; readonly text: string } | undefined;
+
 /** Preview host 向 Table 适配器提供的窄接口，避免组件反向依赖 EditorSurface。 */
 export interface TablePreviewHost {
   readonly options: {
@@ -17,6 +20,8 @@ export interface TablePreviewHost {
     readonly minTableColumnWidth?: number;
     readonly table?: TableLayoutOptions;
     readonly onTableCommand?: TableCommandExecutor;
+    /** Live Preview may have newer source than the last Worker confirmation. */
+    readonly readTableRow?: TableRowReader;
     /** Preview cell pointer 映射回唯一 CodeMirror selection 并激活输入宿主。 */
     readonly onTableCellFocus?: (
       offset: number,

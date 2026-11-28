@@ -271,6 +271,190 @@ export async function runTreeEditScenarios({c,load,settle,confirmed,key,screensh
   await screenshot('tree-edit-table-cell');
   }
 
+  if(runCase('table-selected-ime')) {
+    const source='intro\n\n| Item | Status |\n| --- | --- |\n| xxALFAyy | stable |\n\nTAIL_ANCHOR';
+    const selectionFrom=source.indexOf('ALFA');
+    const selected=async()=>{
+      const [start,end]=await c.evaluate(`(()=>{
+        const cell=view.contentDOM.querySelector('.jot-table-grid-body .jot-table-cell');
+        const text=document.createTreeWalker(cell,NodeFilter.SHOW_TEXT).nextNode();
+        return [2,6].map(offset=>{
+          const range=document.createRange();
+          range.setStart(text,offset);range.collapse(true);
+          const rect=range.getBoundingClientRect();
+          return {x:rect.left,y:(rect.top+rect.bottom)/2};
+        });
+      })()`);
+      await c.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...start});
+      await c.command('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,...end});
+      await c.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...end});
+      await settle();
+      const {selection}=await snapshot();
+      assert.deepEqual([selection.from,selection.to],[selectionFrom,selectionFrom+4],
+        'a real drag selects only the requested text inside its cell');
+    };
+    await load(source);
+    await selected();
+    const before=await snapshot();
+    await c.evaluate(`(()=>{
+      window.selectedTable=view.contentDOM.querySelector('.jot-table');
+      window.selectedComposition=[];
+      view.dom.addEventListener('compositionstart', event => selectedComposition.push({
+        trusted:event.isTrusted, target:event.target.className,
+      }),{capture:true,once:true});
+    })()`);
+    await c.command('Input.imeSetComposition',{text:'zhong',selectionStart:5,selectionEnd:5});
+    await settle();
+    const during=await snapshot();
+    assert(await c.evaluate("selectedTable===view.contentDOM.querySelector('.jot-table')"),
+      'a composition over a selected range must keep the same mounted table');
+    assert(during.focus.includes('jot-live-preview-table-ime'),'contained selection retains the native table input surface');
+    const [composition]=await c.evaluate('selectedComposition');
+    assert(composition?.trusted && composition.target.includes('jot-live-preview-table-ime'),
+      'the browser starts composition on the mapped input surface');
+    assert.equal(during.mirror,source,'composition candidate stays outside committed Markdown');
+    assert.equal(during.revision,before.revision,'composition candidate must not be committed');
+    sameTail(before,during,'selected table composition geometry');
+    await type('中');
+    const committed=await verify(source.replace('ALFA','中'),'selected table composition commit');
+    assert.equal(committed.revision,before.revision+1,'selected text replacement commits once');
+    assert(await c.evaluate("selectedTable===view.contentDOM.querySelector('.jot-table')"),'commit keeps the same table');
+    await undo(source,'selected table composition');
+    await selected();
+    await c.command('Browser.grantPermissions',{
+      origin:await c.evaluate('location.origin'),permissions:['clipboardReadWrite','clipboardSanitizedWrite'],
+    });
+    for (const [action,letter] of [['Copy','c'],['Cut','x']]) {
+      await c.evaluate("navigator.clipboard.writeText('sentinel')");
+      await c.evaluate(`window.selectedClipboard=[];view.dom.addEventListener(${JSON.stringify(action.toLowerCase())},event=>selectedClipboard.push({trusted:event.isTrusted,target:event.target.className}),{capture:true,once:true})`);
+      await c.command('Input.dispatchKeyEvent',{type:'keyDown',key:letter,code:'Key'+letter.toUpperCase(),modifiers:mod,commands:[action]});
+      await c.command('Input.dispatchKeyEvent',{type:'keyUp',key:letter,code:'Key'+letter.toUpperCase(),modifiers:mod});
+      const events=await c.evaluate('selectedClipboard');
+      assert(events[0]?.trusted && events[0].target.includes('jot-live-preview-table-ime'),action+': '+JSON.stringify(events));
+      assert.equal(await c.evaluate('navigator.clipboard.readText()'),'ALFA',action+' uses the real selection inside the cell');
+    }
+    await verify(source.replace('ALFA',''),'cut removes only the selected cell text');
+    await undo(source,'selected table cut');
+    await selected();
+    await press('Backspace');
+    await verify(source.replace('ALFA',''),'Backspace removes selected cell text through the mapped edit');
+    await undo(source,'selected table Backspace');
+    await selected();
+    await type('BETA');
+    await verify(source.replace('ALFA','BETA'),'plain typing replaces only the selected cell text');
+    for (let character=0;character<4;character+=1) await press('ArrowLeft',8);
+    const keyboardSelection=await snapshot();
+    assert.deepEqual([keyboardSelection.selection.from,keyboardSelection.selection.to],[selectionFrom,selectionFrom+4],
+      'Shift+Left selects characters inside the current cell');
+    assert(keyboardSelection.focus.includes('jot-live-preview-table-ime'),'keyboard selection keeps mapped input focus');
+    await type('ALFA');
+    await verify(source,'keyboard selection replacement preserves the table');
+    results.push({case:'tree-edit-table-selected-ime',before,during,committed});
+  }
+
+  for (const action of ['delete','history'].filter(action=>runCase('large-table-range-'+action))) {
+    const rowCount=1100;
+    const columns=6;
+    const rows=Array.from({length:rowCount},(_,i)=>Array.from({length:columns},(_,j)=>
+      j===0?'xx ALFA'+String(i).padStart(4,'0')+' yy':j===1?'XYZ'+String(i).padStart(4,'0'):
+        '备注内容 '+j+' '+('宽列 text '.repeat(j%4))));
+    const source=[
+      'intro','','| '+Array.from({length:columns},(_,i)=>'Header '+i).join(' | ')+' |',
+      '| '+Array(columns).fill('---').join(' | ')+' |',
+      ...rows.map(row=>'| '+row.join(' | ')+' |'),
+      '', 'TAIL_ANCHOR',
+    ].join('\n');
+    await load(source);
+    await c.evaluate('view.scrollDOM.scrollTop=view.scrollDOM.scrollHeight*.55');
+    await settle();
+    const [start,end,from,to,scrollTop]=await c.evaluate(`(async()=>{
+      const table=view.contentDOM.querySelector('.jot-table'), scroller=view.scrollDOM;
+      const limit=performance.now()+8000;
+      let cell;
+      do {
+        await new Promise(resolve=>requestAnimationFrame(resolve));
+        const pane=scroller.getBoundingClientRect();
+        cell=[...table.querySelectorAll('.jot-table-grid-body .jot-table-cell[data-jot-column-index="0"][data-jot-source-from]')]
+          .find(cell=>{
+            const rect=cell.getBoundingClientRect();
+            return rect.top>pane.top+100 && rect.bottom<pane.bottom-15;
+          });
+      } while(!cell && performance.now()<limit);
+      if(!cell) throw Error('no mounted row in the middle of the large table');
+      const text=document.createTreeWalker(cell,NodeFilter.SHOW_TEXT).nextNode();
+      const points=[3,11].map(offset=>{
+        const range=document.createRange();
+        range.setStart(text,offset);range.collapse(true);
+        const rect=range.getBoundingClientRect();
+        return {x:rect.left+.1,y:(rect.top+rect.bottom)/2};
+      });
+      const cellFrom=Number(cell.dataset.jotSourceFrom);
+      const content=view.contentDOM;
+      const observations={detached:false,source:false,maxScrollDelta:0};
+      const initialTop=scroller.scrollTop;
+      const sample=()=>{
+        observations.detached ||= table!==content.querySelector('.jot-table');
+        observations.source ||= !!content.querySelector('.jot-live-preview-source-block-shell--table') ||
+          [...content.children].some(el=>el.classList.contains('cm-line')&&el.textContent.startsWith('| '));
+        observations.maxScrollDelta=Math.max(observations.maxScrollDelta,Math.abs(initialTop-scroller.scrollTop));
+      };
+      const observer=new MutationObserver(records=>{
+        observations.detached ||= records.some(record=>Array.from(record.removedNodes).some(node=>node===table||node.contains(table)));
+        sample();
+      });
+      observer.observe(content,{subtree:true,childList:true});
+      scroller.addEventListener('scroll',sample);
+      window.stopLargeTableEditObservation=()=>{
+        sample();observer.disconnect();scroller.removeEventListener('scroll',sample);
+        return observations;
+      };
+      return [...points,cellFrom+3,cellFrom+11,initialTop];
+    })()`);
+    assert(scrollTop>10000,'large-table regression edits a virtual row far from the header');
+    await c.command('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...start});
+    await c.command('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,...end});
+    await c.command('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...end});
+    await settle();
+    const state=await c.evaluate('(({from,to})=>({from,to,focus:document.activeElement.className}))(view.state.selection.main)');
+    assert.deepEqual([state.from,state.to],[from,to],'pointer selects only text in the mounted deep cell');
+    assert(state.focus.includes('jot-live-preview-table-ime'),'range uses the table input surface');
+    if(action==='delete'){
+      await press('Backspace',mod===4?1:mod);
+      await confirmed();
+      await verify(source.slice(0,from)+source.slice(to),'selected text deleted from one deep cell');
+    } else {
+      const edited=source.slice(0,from)+'BETA'+source.slice(to);
+      await type('BETA');
+      await verify(edited,'selected text replaced in one deep cell');
+      await undo(source,'selected replacement');
+      await redo(edited,'selected replacement');
+    }
+    const observations=await c.evaluate('stopLargeTableEditObservation()');
+    assert(!observations.source && !observations.detached,'table must stay mounted without a Markdown frame '+JSON.stringify(observations));
+    assert(observations.maxScrollDelta<=1,'document must not jump during a deep-cell edit '+JSON.stringify(observations));
+    results.push({case:'tree-edit-large-table-range-'+action,rowCount,observations});
+  }
+
+  if(runCase('table-caret-navigation')) {
+    const source='intro\n\n| Left | Right |\n| --- | --- |\n| one | two |\n| three | four |\n\nTAIL_ANCHOR';
+    await load(source);
+    const from=source.indexOf('one'), end=from+3, right=source.indexOf('two');
+    await select(right);
+    await press('ArrowLeft');
+    assert.equal((await snapshot()).selection.head,end,'Left at a cell start reaches the previous cell end');
+    await press('ArrowRight');
+    assert.equal((await snapshot()).selection.head,right,'Right reverses the move to the next cell start');
+    await press('ArrowLeft');
+    await press('ArrowLeft');
+    assert.equal((await snapshot()).selection.head,end-1,'Left moves one character once inside the previous cell');
+    await select(right);
+    await press('ArrowDown');
+    assert.equal((await snapshot()).selection.head,source.indexOf('four'),'Down stays in the same table column');
+    await press('ArrowUp');
+    assert.equal((await snapshot()).selection.head,right,'Up returns to the same column in the preceding row');
+    assert.equal((await snapshot()).source,source,'table navigation preserves the Markdown');
+  }
+
   if(runCase('ime-ordinary')) {
     console.log('[tree-edit] native ordinary IME');
     const source='intro\n\nordinary input\n\nTAIL_ANCHOR';

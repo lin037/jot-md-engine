@@ -1,6 +1,6 @@
 {
   "name": "@jot-md/editor",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "license": "MIT",
   "description": "Embeddable Markdown editor with live preview, editable tables, and viewport-based rendering for large documents. Built with CodeMirror 6 and a Rust/Wasm Web Worker.",
   "repository": {

@@ -21,13 +21,15 @@ This builds the tarball in `dist/release/` and tests the imports and Worker in a
 
 ## Publishing to npm & GitHub Releases
 
-1. Update the version in `packages/editor/package.json`. After merging to `main`, take the `jot-editor-package` artifact from the successful CI run for that commit. Check that the tarball contains the intended name and version.
-2. Publish the verified `.tgz` with `npm publish` and `--access public`. For Trusted Publishing, enter `publish-npm.yml` as the workflow filename, select the `npm` environment, and allow direct publishing. Then run **Actions → Publish npm package** on `main`.
-3. Check the published tarball with `npm view @jot-md/editor@<version> dist.integrity`. Attach the verified tarball to the matching GitHub Release.
+1. Update the public documentation and benchmark results when applicable, bump the version in `packages/editor/package.json`, and include these changes in the PR. Code PRs run the full checks, and PRs from branches in this repository save the verified package. You can merge several PRs before releasing.
+2. When you are ready to publish, run **Actions → Publish release** on `main` and enter the version. If a successful CI run saved a package for the exact same files, the workflow reuses it. If the files differ or the package is unavailable, the workflow runs the full checks on the selected `main` commit and uses the package from that run.
+3. The workflow publishes the verified `.tgz` to npm and attaches the same file to the matching GitHub Release. If publishing fails, rerun the failed jobs from that release run.
+
+Set up [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) once. Enter `publish-npm.yml` as the workflow filename, select the `npm` environment, and allow direct publishing.
 
 ## Deploying the Demo
 
-To publish the interactive Demo to GitHub Pages automatically on `main` pushes:
+The **Deploy Demo** workflow builds and deploys GitHub Pages separately when relevant files reach `main`.
 
 1. In **Settings → Pages**, set the source to **GitHub Actions**.
 2. In **Settings → Secrets and variables → Actions → Variables**, set `DEPLOY_DEMO=true` (and optionally restrict the `github-pages` environment to `main`).

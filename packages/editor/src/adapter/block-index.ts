@@ -7,6 +7,7 @@ import type {
 } from "@jot-md/editor-protocol";
 
 import { range } from "./text-model.js";
+import { EditRangeIndex } from "./edit-batch.js";
 import { spliceItems } from "./array-splice.js";
 
 export interface IndexedBlock extends BlockMetadata {
@@ -29,7 +30,10 @@ export class SyntaxBlockIndex {
 
   /** Find one confirmed owner for an ordered batch that cannot touch a neighboring root. */
   batchOwner(edits: readonly TextEdit[]): number | undefined {
-    if (edits.length < 2) return undefined;
+    return edits.length >= 2 ? this.#editOwner(edits) : undefined;
+  }
+
+  #editOwner(edits: readonly TextEdit[]): number | undefined {
     const first = edits[0]!.range;
     const last = edits.at(-1)!.range;
     const index = this.blockAt(Number(first.from));
@@ -41,8 +45,9 @@ export class SyntaxBlockIndex {
   }
 
   applyTextEdits(edits: readonly TextEdit[]): void {
-    if (edits.length > 0) this.#version += 1;
-    const owner = this.batchOwner(edits);
+    if (edits.length === 0) return;
+    this.#version += 1;
+    const owner = this.#editOwner(edits);
     if (owner !== undefined) {
       const delta = edits.reduce((length, edit) =>
         length + edit.insert.length - (Number(edit.range.to) - Number(edit.range.from)), 0);
@@ -60,30 +65,36 @@ export class SyntaxBlockIndex {
       }
       return;
     }
-    for (let editIndex = edits.length - 1; editIndex >= 0; editIndex -= 1) {
-      const edit = edits[editIndex]!;
-      const from = Number(edit.range.from);
-      const to = Number(edit.range.to);
-      const delta = edit.insert.length - (to - from);
-      this.#blocks = this.#blocks.map((block) => {
-        const blockFrom = Number(block.sourceRange.from);
-        const blockTo = Number(block.sourceRange.to);
-        if (from === to && from >= blockFrom && from <= blockTo) {
-          return {
-            ...block,
-            sourceRange: range(blockFrom, blockTo + delta),
-            dirty: true,
-          };
+    // Map each root once. Edits strictly before it contribute only a net shift.
+    // Intersections still use the original revision in reverse order, including
+    // insertions at a shared boundary that invalidate both neighboring roots.
+    const changes = new EditRangeIndex(edits);
+    this.#blocks = this.#blocks.map(block => {
+      if (block.kind === "unloaded") return block;
+      let from = Number(block.sourceRange.from), to = Number(block.sourceRange.to);
+      const low = changes.firstEndingAtOrAfter(from);
+      let end = low;
+      while (end < edits.length && edits[end]!.range.from <= to) end++;
+      let dirty = block.dirty;
+      for (let i = end - 1; i >= low; i--) {
+        const edit = edits[i]!.range;
+        const delta = changes.deltaBefore(i + 1) - changes.deltaBefore(i);
+        if (edit.from === edit.to && from <= edit.from && edit.from <= to) {
+          to += delta;
+          dirty = true;
+        } else if (from >= edit.to) {
+          from += delta;
+          to += delta;
+        } else if (to > edit.from) {
+          to = Math.max(from, to + delta);
+          dirty = true;
         }
-        if (blockFrom >= to) return shifted(block, delta);
-        if (blockTo <= from) return block;
-        return {
-          ...block,
-          sourceRange: range(blockFrom, Math.max(blockFrom, blockTo + delta)),
-          dirty: true,
-        };
-      });
-    }
+      }
+      from += changes.deltaBefore(low);
+      to += changes.deltaBefore(low);
+      return from === block.sourceRange.from && to === block.sourceRange.to && dirty === block.dirty
+        ? block : { ...block, sourceRange: range(from, to), dirty };
+    });
   }
 
   applySyntaxPatch(patch: SyntaxPatchSummary): void {

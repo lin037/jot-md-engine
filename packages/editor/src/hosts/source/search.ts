@@ -10,6 +10,7 @@ import {
   replaceNext as codeMirrorReplaceNext,
   search,
   SearchQuery,
+  SearchCursor,
   selectNextOccurrence,
   setSearchQuery,
 } from "@codemirror/search";
@@ -17,8 +18,10 @@ import { redo, undo } from "@codemirror/commands";
 import { EditorView, runScopeHandlers, type Command, type Panel, type ViewUpdate } from "@codemirror/view";
 import { EditorSelection, Transaction, type Extension } from "@codemirror/state";
 import {
+  chunkMayContainMatch,
   hasNoSearchCandidate,
   isKnownSearchMiss,
+  unquoteSearchText,
   scheduleIncrementalSearch,
   type SearchMatchRange,
 } from "../shared/search-engine.js";
@@ -126,7 +129,47 @@ function selectSearchMatch(view: EditorView, match: SearchMatchRange): void {
 const findNext = searchCommand(codeMirrorFindNext, true);
 const findPrevious = searchCommand(codeMirrorFindPrevious, true);
 const replaceNext = searchCommand(codeMirrorReplaceNext);
-const replaceAll = searchCommand(codeMirrorReplaceAll);
+const replaceAll = searchCommand(view => {
+  const { state } = view;
+  const query = getSearchQuery(state);
+  if (state.readOnly) return false;
+  if (query.regexp || query.wholeWord || query.test || state.doc.length < LARGE_DOC_QUERY_DEBOUNCE_UNITS) {
+    return codeMirrorReplaceAll(view);
+  }
+
+  // Keep every match boundary for CodeMirror position mapping and undo. The
+  // immutable replacement Text can be shared by all edits in this transaction.
+  const search = unquoteSearchText(query, query.search).normalize("NFKD");
+  const needle = query.caseSensitive ? search : search.toLowerCase();
+  if (!needle || needle.includes("\n")) return codeMirrorReplaceAll(view);
+  const insert = state.toText(unquoteSearchText(query, query.replace));
+  const changes: { from: number; to: number; insert: typeof insert }[] = [];
+  let start = 0;
+  for (const line of state.doc.iterLines()) {
+    if (!/[^\x00-\x7f]/u.test(line)) {
+      // ASCII normalization keeps every UTF-16 offset. indexOf can therefore
+      // produce the same non-overlapping ranges as SearchCursor on this line.
+      const text = query.caseSensitive ? line : line.toLowerCase();
+      for (let i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + needle.length)) {
+        changes.push({ from: start + i, to: start + i + needle.length, insert });
+      }
+    } else if (chunkMayContainMatch(line, 0, line.length, query)) {
+      const cursor = query.getCursor(state, start, start + line.length);
+      if (!(cursor instanceof SearchCursor)) return codeMirrorReplaceAll(view);
+      while (!cursor.next().done) {
+        const { from, to, precise } = cursor.value;
+        if (precise) changes.push({ from, to, insert });
+      }
+    }
+    start += line.length + 1;
+  }
+  if (!changes.length) return false;
+  view.dispatch({
+    changes, userEvent: "input.replace.all",
+    effects: EditorView.announce.of(state.phrase("replaced $ matches", changes.length) + "."),
+  });
+  return true;
+});
 
 /** One host adapter for command palette, public API, and configured shortcuts. */
 export function executeSourceAction(view: EditorView, action: string): boolean | undefined {

@@ -8,6 +8,7 @@ import type { EditorView } from "@codemirror/view";
 import type { EditorDocumentSession } from "../../adapter/index.js";
 import { componentProjectionDepth } from "../../components/projection.js";
 import { safeUtf16Offset } from "../../components/common/render-utils.js";
+import { sourceLineDestination } from "./viewport.js";
 
 export interface LivePreviewSourceWindow {
   readonly from: number;
@@ -17,11 +18,16 @@ export interface LivePreviewSourceWindow {
 export function visibleSourceWindow(view: EditorView): LivePreviewSourceWindow {
   const first = view.visibleRanges[0] ?? { from: view.viewport.from, to: view.viewport.to };
   const last = view.visibleRanges.at(-1) ?? first;
+  const destination = sourceLineDestination(view);
+  // A long jump can still report the departing viewport until CodeMirror measures.
+  // Only project the destination section while tables on either side acquire their heights.
+  const end = destination !== undefined && (destination < view.viewport.from || destination > view.viewport.to)
+    ? destination : last.to;
   return {
     // 只为可见源码及其邻近范围拉取 RenderNode。离屏高度使用几何估算，
     // 扩大预取范围会让短段落密集的文档一次挂载过多节点。
-    from: Math.max(0, first.from - 384),
-    to: Math.min(view.state.doc.length, last.to + 768),
+    from: destination ?? Math.max(0, first.from - 384),
+    to: Math.min(view.state.doc.length, Math.max(end, destination ?? 0) + 768),
   };
 }
 

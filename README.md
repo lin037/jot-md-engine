@@ -76,23 +76,27 @@ Learn more in [Editing Pipeline](docs/architecture/editing-pipeline.md), [Wire P
 
 ## Browser Benchmarks
 
-Measured on November 19, 2026 (UTC+8), in headless Chrome with a production build and a **1 MiB Markdown document**.
+Measured on November 29, 2026 (UTC+8), in headless Chrome with a production build and a **1 MiB Markdown document**.
 
 | Operation | Time to Visible Frame | Time to Confirmed Text | Full-Document Parse Complete |
 | --- | ---: | ---: | ---: |
-| Open document | 14.8 / 20.2 ms | 54.4 / 65.6 ms | 179.8 / 239.9 ms |
-| Single character insert | 12.2 / 16.8 ms | 16.3 / 17.5 ms | 16.3 / 17.5 ms |
-| Scroll to new region | 20.8 / 22.4 ms | — | — |
-| Insert full 1 MiB payload | 21.5 / 23.5 ms | 67.7 / 68.9 ms | 180.8 / 181.2 ms |
-| Paste full 1 MiB payload | 32.3 / 32.6 ms | 65.7 / 72.0 ms | 178.8 / 194.8 ms |
-| Prepend 1 MiB into existing 1 MiB doc | 15.4 / 15.9 ms | 87.1 / 101.7 ms | 226.4 / 231.4 ms |
+| Open document | 17.6 / 29.9 ms | 71.4 / 112.7 ms | 241.2 / 323.2 ms |
+| Single character insert | 12.6 / 14.2 ms | 18.2 / 24.4 ms | 18.2 / 24.4 ms |
+| Scroll to new region | 23.1 / 24.7 ms | — | — |
+| Paste short text into a paragraph | 12.8 / 14.0 ms | 15.6 / 21.0 ms | 15.6 / 21.0 ms |
+| Find a match near the end | 83.2 / 146.1 ms | — | — |
+| Undo an inline edit | 15.6 / 17.9 ms | 8.8 / 22.5 ms | 8.8 / 22.5 ms |
+| Redo an inline edit | 15.9 / 21.4 ms | 8.1 / 22.3 ms | 8.1 / 22.3 ms |
+| Insert full 1 MiB payload | 22.3 / 24.3 ms | 68.8 / 110.4 ms | 202.9 / 361.2 ms |
+| Paste full 1 MiB payload | 31.7 / 32.8 ms | 67.2 / 109.2 ms | 193.5 / 334.5 ms |
+| Prepend 1 MiB into existing 1 MiB doc | 20.0 / 27.4 ms | 110.6 / 139.7 ms | 283.5 / 361.8 ms |
 
-*Values are `median / max` in milliseconds across 5 measured runs (after 1 warmup). See [Benchmarks](benchmarks/README.md) for methodology and how to run them locally.*
+*Values are `median / max` in milliseconds across two rounds of 5 samples each (one warmup per round). See [Benchmarks](benchmarks/README.md) for methodology and how to run them locally.*
 
 <details>
 <summary>Environment & timing definitions</summary>
 
-- **Hardware & browser**: Apple M3, macOS (Darwin 25.1.0), Chrome 157.0.8103.79 headless, 1100 × 850 viewport, 1,048,985-byte mixed Markdown payload.
+- **Hardware & browser**: Apple M3, macOS (Darwin 25.1.0), Chrome 158.0.8127.37 headless, 1100 × 850 viewport, 1,048,985-byte mixed Markdown payload.
 - **Visible Frame**: Time until the updated content appears in two consecutive rendered frames.
 - **Confirmed Text**: Time until the Rust/Wasm Worker commits the revision and the host can safely read `editor.confirmedValue` for persistence.
 - **Full-Document Parse Complete**: Time until background incremental syntax analysis finishes for the entire document.

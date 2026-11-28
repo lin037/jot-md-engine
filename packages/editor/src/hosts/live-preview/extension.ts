@@ -51,6 +51,7 @@ export interface OptimisticEmptyFirstInput {
   readonly kind: "fenced-code" | "math-block";
 }
 export const optimisticEmptyFirstInput = Annotation.define<OptimisticEmptyFirstInput>();
+export const mappedTableCellEdit = Annotation.define<{ readonly from: number; readonly to: number }>();
 
 interface OptimisticPresentation {
   readonly id: string;
@@ -83,6 +84,7 @@ interface LivePreviewExtensionCallbacks {
   readonly onToggleTask?: (from: number) => boolean;
   readonly onWidgetActivate: (view: EditorView, from: number, to: number) => void;
   readonly onTransaction: (transaction: Transaction) => Transaction | readonly TransactionSpec[];
+  readonly resolveMappedTableEdit: (transaction: Transaction) => { readonly from: number; readonly to: number } | undefined;
   readonly onComposition: (active: boolean, event: CompositionEvent, view: EditorView) => void;
 }
 
@@ -136,6 +138,10 @@ export function createLivePreviewExtension(
     createStableMetricGuard(callbacks.isEnabled),
     EditorView.atomicRanges.of((view) => view.state.field(field).atomic),
     EditorState.transactionFilter.of(callbacks.onTransaction),
+    EditorState.transactionExtender.of((transaction) => {
+      const cell = callbacks.resolveMappedTableEdit(transaction);
+      return cell === undefined ? null : { annotations: mappedTableCellEdit.of(cell) };
+    }),
     EditorView.updateListener.of((update) => {
       if (update.selectionSet || update.docChanged) scrollCodeCaretIntoView(update.view);
       if (update.state.readOnly !== update.startState.readOnly) {
@@ -145,7 +151,7 @@ export function createLivePreviewExtension(
       }
       if (update.docChanged) {
         const toggles = new Map<number, boolean>();
-        update.changes.iterChanges((fromA, toA, fromB, toB) => {
+        update.changes.desc.iterChangedRanges((fromA, toA, fromB, toB) => {
           if (fromA < 1 || fromB < 1 || toA !== fromA + 1 || toB !== fromB + 1 ||
               toA >= update.startState.doc.length || toB >= update.state.doc.length) return;
           const before = update.startState.doc.sliceString(fromA - 1, toA + 1);
@@ -373,10 +379,10 @@ function mapUnaffectedDecorations(
   const edits: Array<{ readonly from: number; readonly to: number }> = [];
   const mappedEdits: Array<{ readonly from: number; readonly to: number }> = [];
   let inlineOnly = true;
-  transaction.changes.iterChanges((fromA, toA, fromB, toB, insert) => {
+  transaction.changes.desc.iterChangedRanges((fromA, toA, fromB, toB) => {
     edits.push({ from: fromA, to: toA });
     mappedEdits.push({ from: fromB, to: toB });
-    inlineOnly &&= insert.lines === 1 &&
+    inlineOnly &&= transaction.newDoc.lineAt(fromB).number === transaction.newDoc.lineAt(toB).number &&
       transaction.startState.doc.lineAt(fromA).number === transaction.startState.doc.lineAt(toA).number;
     changed.push({
       from: Math.max(0, fromB - 1),
@@ -772,8 +778,9 @@ function isMappedSelection(value: Decoration): boolean {
   return spec?.jotLiveSelection === "mapped";
 }
 
-function isTableInputTransaction(transaction: Transaction): boolean {
-  return transaction.annotation(Transaction.userEvent)?.startsWith("input.table.") === true;
+export function isTableInputTransaction(transaction: Transaction): boolean {
+  return transaction.annotation(mappedTableCellEdit) !== undefined ||
+    transaction.annotation(Transaction.userEvent)?.startsWith("input.table.") === true;
 }
 
 function emptyState(): DecorationState {

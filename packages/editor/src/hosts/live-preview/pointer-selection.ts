@@ -19,6 +19,7 @@ export interface PreviewPointerTarget {
   readonly lineRange?: DomSourceRange;
   readonly onActivate?: () => void;
   readonly onCaret?: () => void;
+  readonly onRangeEnd?: () => void;
 }
 
 interface ActiveGesture {
@@ -170,10 +171,13 @@ export function beginLivePreviewPointerSelection(
       nextHead = backwards ? extent.from : extent.to;
     }
     dispatchSelection(view, nextAnchor, nextHead);
-    // A cell's transient IME sink is not the owner of a noncollapsed selection.
+    // Leave focus in the editor until the pointer gesture finishes.
     if (!view.state.selection.main.empty) view.focus();
   };
-  const end = () => { cancel(); };
+  const end = () => {
+    cancel();
+    if (view.state.doc === doc && !view.state.selection.main.empty) target.onRangeEnd?.();
+  };
   gestures.set(view, { element: target.element, cancel });
   document.addEventListener("mousemove", move, true);
   document.addEventListener("mouseup", end, true);

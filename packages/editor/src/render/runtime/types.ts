@@ -1,6 +1,7 @@
 import type { EditorSelection, TextRange } from "@jot-md/editor-protocol";
 import type { EditorDocumentSession } from "../../adapter/session.js";
 import type { TableCommandExecutor } from "../../components/table/commands.js";
+import type { TableRowReader } from "../../components/table/preview-host.js";
 import type { TableLayoutOptions } from "../../components/table/layout.js";
 import type { EditorPluginRegistry } from "../../plugins/registry.js";
 import type {
@@ -27,6 +28,7 @@ export interface RenderRuntimeOptions {
   readonly minTableColumnWidth?: number;
   readonly table?: TableLayoutOptions;
   readonly onTableCommand?: TableCommandExecutor;
+  readonly readTableRow?: TableRowReader;
   /**
    * TableGrid 已经拥有 pointer 命中的精确 cell range。把它和 offset 一起交给
    * 宿主，避免宿主为了恢复同一事实再次线性扫描整张 Markdown table。

@@ -49,11 +49,16 @@ try {
         const observer = new PerformanceObserver((list) => longTasks.push(...list.getEntries().map((entry) => entry.duration)));
         observer.observe({ type: 'longtask', buffered: false });
         let firstPreviewMs;
+        let largestSyntaxUpdate = 0;
         const started = performance.now();
         const editor = new MarkdownEditor({ root, mode: 'live-preview',
           session: { endpoint: worker, documentId: 'large-${mib}', generation: 1, source, syntaxProfile: { id: 'default', version: 1, enabledExtensions: [] },
             onProtocolEvent: (event) => {
               const body = event.message.body;
+              if (body.type === 'analysis-state-changed' && body.update?.syntax) {
+                const inserted = body.update.syntax.blockChanges.reduce((count, change) => count + change.inserted.length, 0);
+                largestSyntaxUpdate = Math.max(largestSyntaxUpdate, inserted);
+              }
               if (protocol.length < 200 && (event.channel !== 'background' || body.analysis?.state === 'complete')) {
                 protocol.push({ atMs: performance.now() - started, direction: event.direction, type: body.type,
                   state: body.analysis?.state, slices: body.projection?.slices?.map((slice) => ({ parentId: slice.parentId, window: slice.window, maxDepth: slice.maxDepth })),
@@ -94,7 +99,7 @@ try {
         const tail = { ...editor.livePreview.snapshot };
         const tailVisible = view.contentDOM.textContent.includes('TAIL_SENTINEL');
         const result = { mib: ${mib}, bytes, utf16: source.length, openAcknowledgedMs, firstPreviewCommitMs: firstPreviewMs,
-          analysisCompleteMs, readyMs, tailVisible, top, tail, rootBlocks: editor.session.adapter.blocks.blocks.length,
+          analysisCompleteMs, readyMs, tailVisible, top, tail, largestSyntaxUpdate, rootBlocks: editor.session.adapter.blocks.blocks.length,
           mountedElements: root.querySelectorAll('*').length, longTaskCount: longTasks.length,
           longTaskTotalMs: longTasks.reduce((sum, value) => sum + value, 0), maxLongTaskMs: Math.max(0, ...longTasks),
           heapBytes: performance.memory?.usedJSHeapSize, fullTextReads, errors, protocol };

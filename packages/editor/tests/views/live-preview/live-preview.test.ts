@@ -828,6 +828,16 @@ function quote_keeps_rendered_inline_geometry_outside_the_edited_line(): void {
     ).join(",");
   };
   for (const forceSource of [false, true]) {
+    const editingImage = planLivePreview({
+      source,
+      nodes: [quote],
+      selections: [{ from: imageFrom + 2, to: imageFrom + 2 }],
+      forceSource,
+    });
+    const imageLineEnd = source.indexOf("\n", imageFrom);
+    const companions = editingImage.decorations.filter(item =>
+      item.type === "replace" && item.widget?.sourceCompanion === true);
+    equal(companions.map(item => item.from).join(","), String(imageLineEnd));
     equal(rendered(3, forceSource), "image,inline-math");
     equal(rendered(source.indexOf("Image:"), forceSource), "image,inline-math");
     equal(rendered(imageFrom + 2, forceSource), "inline-math");

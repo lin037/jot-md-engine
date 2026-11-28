@@ -1,3 +1,4 @@
+import { revealSourceLine } from "../hosts/live-preview/viewport.js";
 import type { RenderNode, Revision } from "@jot-md/editor-protocol";
 import type { MarkdownEditor } from "../component/markdown-editor.js";
 import { booleanAttribute, numberAttribute, numbersAttribute } from "../components/common/dom-renderer.js";
@@ -282,16 +283,20 @@ export function mountOutline(container: HTMLElement, editor: MarkdownEditor, opt
       blockIndex = followingBlock === undefined ? undefined : followingBlock - 1;
     }
     const revealed = editor.headingFolds.reveal(offset);
-    if (!editor.inputPane.hidden) {
-      editor.input.setSelection(offset);
-      view.focus();
+    const inputVisible = !editor.inputPane.hidden;
+    const releaseAnchor = inputVisible ? revealSourceLine(view, offset, mode === "live-preview") : undefined;
+    try {
+      if (inputVisible) view.focus();
+      if (!editor.surfacePane.hidden && blockIndex !== undefined) {
+        if (revealed) await editor.surface.settled();
+        if (!current()) return;
+        editor.surface.applyScrollAnchor({ sourceOffset: offset, blockIndex, progress: 0 });
+      }
+      setActive(offset);
+      if (releaseAnchor) await editor.livePreview.settled();
+    } finally {
+      releaseAnchor?.();
     }
-    if (!editor.surfacePane.hidden && blockIndex !== undefined) {
-      if (revealed) await editor.surface.settled();
-      if (!current()) return;
-      editor.surface.applyScrollAnchor({ sourceOffset: offset, blockIndex, progress: 0 });
-    }
-    setActive(offset);
   }
 
   function toggle(node: RenderNode): void {
