@@ -86,6 +86,8 @@ import {
 } from "./projection-window.js";
 import {
   markLivePreviewUserScroll,
+  releaseSourceLine,
+  expandSourceLineWindowAtEnd,
   nearestRevealDelta,
   captureLivePreviewViewport,
   restoreLivePreviewViewport,
@@ -95,6 +97,7 @@ import {
 import {
   clearMeasuredLivePreviewHeights,
   measuredLivePreviewSubtreeHeight,
+  measuredLivePreviewHeight,
 } from "./widget.js";
 import {
   resolveLivePreviewBlockExit,
@@ -972,6 +975,7 @@ export class LivePreviewController {
   setEnabled(enabled: boolean): void {
     this.#assertLive();
     if (enabled === this.#enabled) return;
+    if (this.#view) releaseSourceLine(this.#view);
     this.#enabled = enabled;
     this.#lastProjectionKey = "";
     this.#lastDetailProjectionKey = "";
@@ -1056,6 +1060,10 @@ export class LivePreviewController {
       const view = this.#view;
       if (view !== undefined && this.#enabled && !this.#composing && this.#sourceIsConfirmed()) {
         const screen = screenSourceWindow(view);
+        if (expandSourceLineWindowAtEnd(view, screen.from)) {
+          this.#schedule(true);
+          continue;
+        }
         const plan = this.#lastPlanSourceWindow;
         const key = `${this.#options.session.adapter.revision}:${screen.from}:${screen.to}:${plan?.from}:${plan?.to}`;
         if ((plan === undefined || screen.from < plan.from || screen.to > plan.to) && key !== lastCoverageAttempt) {
@@ -1180,6 +1188,7 @@ export class LivePreviewController {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    if (this.#view) releaseSourceLine(this.#view);
     if (this.#emptyCompositionTimer !== undefined) clearTimeout(this.#emptyCompositionTimer);
     this.#emptyCompositionTimer = undefined;
     this.#emptyComposition = undefined;
@@ -1238,6 +1247,7 @@ export class LivePreviewController {
   #pendingTableRowInput: { readonly doc: Text; readonly head: number; readonly previousFrom: number } | undefined;
 
   #onViewUpdate(update: ViewUpdate): void {
+    if (update.docChanged || update.selectionSet) releaseSourceLine(update.view);
     if (update.state.readOnly) this.#tableIme?.cancel();
     this.#searchHighlights?.schedule();
     const composition = this.#emptyComposition;
@@ -1612,7 +1622,7 @@ export class LivePreviewController {
       ...(this.#composing || this.#searchSourceReveal ? { forceSource: true } : {}),
       ...(this.#searchSourceReveal ? { revealSyntax: true } : {}),
       ...(selectionHighlights.length === 0 ? {} : { selectionHighlights }),
-      geometryGaps: this.#pretext.geometry(view, visible).filter(gap =>
+      geometryGaps: this.#pretext.geometry(view, visible, block => measuredLivePreviewHeight(runtime, block)).filter(gap =>
         !(this.#options.headingFolds?.visibleRanges ?? []).some(fold => gap.from < fold.to && fold.from < gap.to)),
       ...(this.#searchSelectionActive ? { geometryExclusions: selectionHighlights.length > 0
         ? selectionHighlights : [{ from: view.state.selection.main.from, to: view.state.selection.main.to }] } : {}),

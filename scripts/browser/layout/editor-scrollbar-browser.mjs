@@ -180,6 +180,59 @@ try{
   assert.deepEqual(await c.evaluate('probe.errors'),[]);
   const mixed={bytes:await c.evaluate('new TextEncoder().encode(source).length'),openMs:await c.evaluate('probe.openMs'),pending:{physicalRatio,thumbRatio,loaded:pending.loaded,blocks:pending.blocks},clicked:{ratio:clicked.scroll/clicked.max},dragged:{ratio:dragged.scroll/dragged.max,sourceAt:dragged.sourceAt},confirmed:{sourceAt:confirmed.sourceAt,thumbRatio:confirmed.track.value/confirmed.track.max,analysis:confirmed.analysis},confirmedJump:{ratio:confirmedJump.scroll/confirmedJump.max,sourceAt:confirmedJump.sourceAt}};
   await c.evaluate('editor.dispose();worker.terminate()');
+
+  // A wrapped table can be measured synchronously as its DOM re-enters the viewport.
+  // Capture the first connected geometry, before the deferred row window is attached.
+  const tableFixture = await c.evaluate(`(async()=>{
+    const {MarkdownEditor}=await import('/@fs${process.cwd()}/packages/editor/src/index.ts');
+    const root=document.createElement('main');
+    root.style.cssText='width:340px;height:400px;margin:10px';
+    document.body.replaceChildren(root);
+    const words='窄窗口里的表格需要把单元格内容换行。'.repeat(10);
+    const table='| ID | Notes | Extra |\\n|---|---|---|\\n'+
+      Array.from({length:8},(_,i)=>'| '+i+' | '+words+' | '+words+' |').join('\\n');
+    const filler=Array.from({length:32},(_,i)=>'段 '+i+' 短段落'.repeat(8)).join('\\n\\n');
+    const source=filler+'\\n\\n'+table+'\\n\\n'+filler+'\\n\\n'+table+'\\n';
+    const worker=new Worker('/src/worker.ts',{type:'module'});
+    const editor=new MarkdownEditor({root,mode:'live-preview',surface:{table:{mode:'adaptive'}},
+      session:{endpoint:worker,documentId:'scroll-table',generation:1,source,
+        syntaxProfile:{id:'default',version:1,enabledExtensions:[]}},
+      onError:error=>probe.errors.push(String(error))});
+    Object.assign(window,{editor,worker,view:editor.input.view});
+    const scroll=view.scrollDOM;
+    const measurements=[];
+    const before=Node.prototype.insertBefore;
+    Node.prototype.insertBefore=function(child,reference) {
+      const result=before.call(this,child,reference);
+      if(child instanceof HTMLElement && child.matches('.jot-live-preview-widget--table') && view.contentDOM.contains(child)){
+        measurements.push({from:Number(child.dataset.jotSourceFrom),height:child.getBoundingClientRect().height});
+      }
+      return result;
+    };
+    window.tableScroll={measurements,restore:()=>{Node.prototype.insertBefore=before}};
+    await editor.open();
+    await editor.settled();
+    const box=scroll.getBoundingClientRect();
+    return {x:box.left+10,y:box.top+box.height/2};
+  })()`);
+  try {
+    await c.command('Input.dispatchMouseEvent',{type:'mouseWheel',...tableFixture,deltaX:0,deltaY:12000});
+    await wait("view.scrollDOM.scrollTop>1000 && view.contentDOM.querySelector('.jot-table-row')");
+    await c.evaluate('editor.settled()');
+    for(let step=0;step<20;step++){
+      await c.command('Input.dispatchMouseEvent',{type:'mouseWheel',...tableFixture,deltaX:0,deltaY:-180});
+      await frame();
+    }
+    await c.evaluate('editor.settled()');
+    const measurements=await c.evaluate('tableScroll.measurements');
+    assert.ok(measurements.length>0,'wheel scrolling must enter a table widget window');
+    assert.ok(measurements.every(entry=>entry.height>=100),
+      `a table must reserve its vertical extent before its rows mount: ${JSON.stringify(measurements)}`);
+    assert.deepEqual(await c.evaluate('probe.errors'),[]);
+  } finally {
+    await c.evaluate('tableScroll.restore();editor.dispose();worker.terminate()');
+  }
+
   // Match the tall Demo viewport where the rendered image and bottom padding
   // make the physical scroll range far taller than the old estimated range.
   await c.command('Emulation.setDeviceMetricsOverride',{width:1240,height:1057,deviceScaleFactor:2,mobile:false});

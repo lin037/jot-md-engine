@@ -93,6 +93,7 @@ export class LivePreviewPreTextEstimator {
   geometry(
     view: EditorView,
     visible: LivePreviewSelectionRange,
+    measuredHeight?: (block: GeometryBlock) => number | undefined,
   ): readonly LivePreviewGeometryGap[] {
     const { text, blocks: index } = this.#session.adapter;
     if (this.#geometryVersion !== index.version) {
@@ -175,7 +176,7 @@ export class LivePreviewPreTextEstimator {
         id: `pretext-gap:${block.id}`,
         from: Number(block.sourceRange.from),
         to: Number(block.sourceRange.to),
-        estimatedHeight: block.estimatedHeight,
+        estimatedHeight: measuredHeight?.(block) ?? block.estimatedHeight,
       }));
   }
 

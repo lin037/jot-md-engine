@@ -206,6 +206,104 @@ try {
   await wait("document.activeElement === f.nav()");
   await press("F8", 119);
   await wait("f.editor.input.view.hasFocus");
+  // Project long wrapped cells on both sides of the last heading in a narrow writing pane.
+  const geometryFixture = await run(async () => {
+    const view = f.editor.input.view;
+    const root = view.dom.closest("main");
+    const savedStyle = root.style.cssText;
+    root.style.cssText = "height:360px;width:340px;";
+    const text = "窄窗口中的长文字会换行。".repeat(10);
+    const table = "| A | B | C |\n|---|---|---|\n" +
+      Array.from({ length: 8 }, (_, i) => `| ${i} | ${text} | ${text} |`).join("\n");
+    f.outlineFixture = "### First\n" + (text + "\n\n").repeat(25) + "### Middle\n" +
+      text + "\n\n" + table + "\n\n### Last\n\n" + table;
+    f.editor.setValue(f.outlineFixture);
+    await f.editor.settled();
+    return savedStyle;
+  });
+  await wait("f.labels().join() === 'First,Middle,Last'");
+  for (const mode of ["source", "live-preview"]) {
+    await run(async mode => { await f.editor.setMode(mode); await f.editor.settled(); }, mode);
+    for (const target of [1, 2]) {
+      await run(() => f.buttons()[0].click());
+      await wait("f.editor.input.view.state.selection.main.head === 0");
+      const trace = await run(async index => {
+        const view = f.editor.input.view, scroll = view.scrollDOM;
+        const title = f.buttons()[index].textContent;
+        const offset = f.outlineFixture.indexOf("### " + title);
+        f.buttons()[index].click();
+        const samples = [];
+        for (let i = 0; i < 30; ++i) {
+          await new Promise(requestAnimationFrame);
+          if (view.state.selection.main.head !== offset) continue;
+          const row = [...view.contentDOM.querySelectorAll(".cm-line")].find(line => line.textContent.includes(title));
+          samples.push(row ? Math.round(row.getBoundingClientRect().top - scroll.getBoundingClientRect().top) : null);
+        }
+        return { samples, line: view.defaultLineHeight, padding: view.documentPadding.top };
+      }, target);
+      const aligned = y => y !== null && y >= -1 && y <= trace.padding + trace.line;
+      const first = trace.samples.findIndex(aligned);
+      assert.ok(first >= 0 && trace.samples.slice(first).every(aligned),
+        mode + " must retain the requested heading at the top through table measurement: " + JSON.stringify(trace.samples));
+    }
+  }
+  const hostScroll = await run(async () => {
+    await f.editor.settled();
+    const scroll = f.editor.input.view.scrollDOM;
+    const before = scroll.scrollTop;
+    scroll.scrollTop = 0;
+    await f.editor.settled();
+    return { before, after: scroll.scrollTop };
+  });
+  assert.ok(hostScroll.before > 0, "the outline jump must start away from the top");
+  assert.ok(hostScroll.after <= 1, "a settled outline jump must release the viewport: " + JSON.stringify(hostScroll));
+  await run(() => f.buttons().at(-1).click());
+  await wait(`(() => {
+    const view = f.editor.input.view;
+    const row = [...view.contentDOM.querySelectorAll(".cm-line")].find(line => line.textContent.includes("Last"));
+    return row && Math.abs(row.getBoundingClientRect().top - view.scrollDOM.getBoundingClientRect().top) <= view.defaultLineHeight;
+  })()`);
+  const wheelPoint = await run(async () => {
+    await f.editor.settled();
+    const scroll = f.editor.input.view.scrollDOM;
+    scroll.scrollIntoView({ block: "center" });
+    const box = scroll.getBoundingClientRect();
+    return { x: box.left + box.width / 2, y: box.top + f.editor.input.view.defaultLineHeight / 2 };
+  });
+  await client.command("Input.dispatchMouseEvent", { type: "mouseWheel", ...wheelPoint, deltaX: 0, deltaY: -140 });
+  const userScrolled = `(() => {
+    const view = f.editor.input.view;
+    const row = [...view.contentDOM.querySelectorAll(".cm-line")].find(line => line.textContent.includes("Last"));
+    return row && row.getBoundingClientRect().top - view.scrollDOM.getBoundingClientRect().top > 60;
+  })()`;
+  await wait(userScrolled);
+  await run(() => f.editor.settled());
+  assert.ok(await client.evaluate(userScrolled), "a later table measurement must respect manual scrolling");
+
+  // A short last section may leave room above it. That part of the table must remain rendered.
+  await run(async () => {
+    f.editor.setValue(f.outlineFixture.slice(0, f.outlineFixture.indexOf("### Last") + "### Last".length));
+    await f.editor.settled();
+  });
+  await wait("f.labels().at(-1) === 'Last' && f.nav().getAttribute('aria-busy') === 'false'");
+  await run(() => f.buttons().at(-1).click());
+  await wait("f.editor.input.view.state.selection.main.head === f.editor.value.indexOf('### Last')");
+  await run(() => f.editor.settled());
+  const tail = await run(() => {
+    const view = f.editor.input.view, box = view.scrollDOM.getBoundingClientRect();
+    const row = [...view.contentDOM.querySelectorAll(".cm-line")].find(line => line.textContent.includes("Last"));
+    const table = view.contentDOM.querySelector(".jot-table");
+    return { heading: !!row && row.getBoundingClientRect().top >= box.top && row.getBoundingClientRect().bottom <= box.bottom + 1,
+      table: !!table && table.getBoundingClientRect().bottom > box.top && table.getBoundingClientRect().top < box.bottom };
+  });
+  assert.deepEqual(tail, { heading: true, table: true }, "the end of the document keeps adjacent visible content");
+  await run(async style => {
+    f.editor.input.view.dom.closest("main").style.cssText = style;
+    await f.editor.setMode("source");
+    f.editor.setValue(f.source);
+    await f.editor.settled();
+  }, geometryFixture);
+  await wait("f.labels()[0] === '甲😀'");
   // Hold one real Worker result while the editor confirms a newer revision.
   await run(() => {
     const original = f.editor.session.project.bind(f.editor.session);

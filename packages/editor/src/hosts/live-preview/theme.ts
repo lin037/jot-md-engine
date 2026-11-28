@@ -407,6 +407,10 @@ export const livePreviewTheme = EditorView.baseTheme({
   ".cm-content.jot-live-preview-content .jot-live-preview-widget--source-companion": {
     display: "block",
   },
+  ".jot-live-preview-widget[data-jot-live-in-place-id]:empty": {
+    boxSizing: "border-box",
+    minBlockSize: "var(--jot-live-preview-deferred-height)",
+  },
   ".jot-live-preview-widget--geometry": {
     pointerEvents: "none",
     opacity: "0",

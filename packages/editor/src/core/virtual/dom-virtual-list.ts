@@ -158,6 +158,9 @@ export class DomVirtualList<T> {
 
   setCount(count: number): void {
     this.axis.resize(count);
+    // A remounted list already knows its row heights. Publish its extent before
+    // the first async row window so the containing editor never measures an empty body.
+    if (!this.#lastWindow) this.#setSpacerHeight(this.#afterSpacer, this.axis.totalSize);
     // 不要在下一次 keyed commit 之前移除旧尾部槽位。结构 splice 可能减少数量，
     // 同时把未变化的后缀项从旧尾部移动到更低的索引。提前移除会在 `#commit`
     // 按 key 匹配前销毁该项的 DOM 外壳。已调度的 commit 会移除所有真正不再保留的
